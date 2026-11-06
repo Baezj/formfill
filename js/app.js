@@ -264,6 +264,12 @@ function hintFor(t) {
   toast(m[t] || '', 1600);
 }
 
+editor.onHotspots = n => {
+  if (!n || !state.doc) return;
+  const hasFields = state.fieldDefs.length > 0;
+  toast(hasFields ? `${state.fieldDefs.length} fields found, plus a signature line — tap "Tap to sign" when you're ready.` : 'Found a signature line — tap "Tap to sign" to place your signature.', 4000);
+};
+
 // quick fill
 editor.onQuickFill = (page, x, y) => {
   const chips = $('#quick-chips'); const p = store.profile;
