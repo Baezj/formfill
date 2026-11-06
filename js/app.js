@@ -308,7 +308,7 @@ $('#btn-settings').addEventListener('click', () => { renderProfileForm(); render
 
 function renderProfileForm() {
   const form = $('#profile-form'); const p = store.profile;
-  form.innerHTML = PROFILE_FIELDS.map(([k, label, cls]) => `<label class="${cls || ''}">${label}<input data-k="${k}" autocomplete="off"></label>`).join('');
+  form.innerHTML = PROFILE_FIELDS.map(([k, label, cls, ac]) => `<label class="${cls || ''}">${label}<input data-k="${k}" autocomplete="${ac || 'off'}" name="${ac || k}"></label>`).join('');
   for (const inp of form.querySelectorAll('input')) {
     inp.value = p[inp.dataset.k] || '';
     inp.addEventListener('input', () => { p[inp.dataset.k] = inp.value; store.save(); });
