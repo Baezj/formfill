@@ -42,6 +42,14 @@ export async function loadPdfFile(file, askPassword) {
       } else throw e;
     }
   }
+  // pdf-lib must be able to load the file to write it back later. Encrypted ("secured") PDFs and
+  // some damaged files can't be, so those are opened as page images instead, with the detected
+  // form fields drawn onto the images at export time.
+  let writable = true;
+  try { await window.PDFLib.PDFDocument.load(bytes, { updateMetadata: false }); }
+  catch (e) { console.warn('pdf-lib cannot load this file, rasterizing:', e && e.message); writable = false; }
+  if (!writable) return { doc: await rasterizePdf(pdf, stripExt(file.name), !!password), pdf: null };
+
   const doc = baseDoc(stripExt(file.name), 'pdf');
   doc.source = bytes.buffer;
   doc.password = password || null;
@@ -52,6 +60,25 @@ export async function loadPdfFile(file, askPassword) {
     doc.pages.push({ w: vp.width, h: vp.height, rotation: page.rotate, image: null });
   }
   return { doc, pdf };
+}
+
+async function rasterizePdf(pdf, name, hadPassword) {
+  const doc = baseDoc(name, 'image');
+  const SCALE = 2; // 144 dpi
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const vp1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: SCALE });
+    const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE_FORMS }).promise;
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.86));
+    doc.pages.push({ w: vp1.width, h: vp1.height, rotation: 0, image: blob, pxW: c.width, pxH: c.height });
+  }
+  doc.fieldDefs = await extractFields(pdf);
+  doc.note = (hadPassword ? 'Password-protected' : 'Protected') + ' PDF — opened as page images. Fields still work; the result is a flat PDF.';
+  try { pdf.destroy(); } catch { /* ignore */ }
+  return doc;
 }
 
 // Widget annotations (AcroForm fields) with display-space rects, per page.

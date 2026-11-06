@@ -86,6 +86,7 @@ export async function buildPdf(doc, opts = {}) {
     }
   }
 
+  if (doc.kind !== 'pdf' && doc.fieldDefs && doc.fieldDefs.length) await drawRasterFields(pdfDoc, doc, mappers);
   await drawAnnots(pdfDoc, doc, mappers);
   pdfDoc.setModificationDate(new Date());
   return pdfDoc.save({ useObjectStreams: false });
@@ -162,6 +163,49 @@ async function fillFields(pdfDoc, doc, fieldDefs, flatten) {
       const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
       form.updateFieldAppearances(helv);
     } catch (e) { console.warn('appearances', e); }
+  }
+}
+
+// For PDFs opened as images (encrypted/unwritable): paint the field values onto the page images.
+async function drawRasterFields(pdfDoc, doc, mappers) {
+  const pages = pdfDoc.getPages();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const black = rgb(0, 0, 0);
+  const vals = doc.fields || {};
+  for (const f of doc.fieldDefs) {
+    const page = pages[f.page]; const m = mappers[f.page]; if (!page || !m) continue;
+    const v = f.name in vals ? vals[f.name] : f.value;
+    if (v == null || v === '' || v === false || v === 'Off') continue;
+    if (f.type === 'checkbox' || f.type === 'radio') {
+      if (v !== true && String(v) !== String(f.exportValue)) continue;
+      const s = Math.min(f.w, f.h);
+      if (f.type === 'radio') {
+        const c = m.toPdf(f.x + f.w / 2, f.y + f.h / 2);
+        page.drawCircle({ x: c.x, y: c.y, size: s * 0.22, color: black });
+      } else {
+        const t = Math.max(1, s * 0.12); let prev = null;
+        for (const p of [[0.2, 0.55], [0.42, 0.78], [0.82, 0.22]]) {
+          const cur = m.toPdf(f.x + (f.w - s) / 2 + p[0] * s, f.y + (f.h - s) / 2 + p[1] * s);
+          if (prev) page.drawLine({ start: prev, end: cur, thickness: t, color: black, lineCap: LineCapStyle.Round });
+          prev = cur;
+        }
+      }
+      continue;
+    }
+    let text = Array.isArray(v) ? v.join(', ') : String(v);
+    if (f.type === 'combo' || f.type === 'list') { const o = (f.options || []).find(o => o.v === text); if (o && o.label) text = o.label; }
+    const size = f.multiLine ? 9 : Math.max(5, Math.min(12, f.h * 0.62));
+    const lines = wrapLines(text, font, size, Math.max(4, f.w - 4));
+    const lineH = size * 1.2;
+    const maxLines = Math.max(1, Math.floor((f.h - 2) / lineH));
+    lines.slice(0, f.multiLine ? maxLines : 1).forEach((line, i) => {
+      if (!line) return;
+      const by = f.multiLine ? f.y + 2 + size * 0.92 + i * lineH : f.y + f.h / 2 + size * 0.35;
+      let bx = f.x + 2;
+      if (!f.multiLine && f.align) { const tw = font.widthOfTextAtSize(line, size); bx = f.align === 1 ? f.x + (f.w - tw) / 2 : f.x + f.w - 2 - tw; }
+      const { x, y } = m.toPdf(bx, by);
+      page.drawText(line, { x, y, size, font, color: black, rotate: degrees(m.rot) });
+    });
   }
 }
 

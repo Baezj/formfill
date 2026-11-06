@@ -102,7 +102,7 @@ async function openSaved(id) {
 
 async function openDoc(doc, pdf = null) {
   if (state.doc) await closeDoc();
-  state.doc = doc; state.pdf = pdf; state.fieldDefs = pdf ? await extractFields(pdf) : [];
+  state.doc = doc; state.pdf = pdf; state.fieldDefs = pdf ? await extractFields(pdf) : (doc.fieldDefs || []);
   $('#ed-title').textContent = doc.name;
   const st = $('#ed-status');
   if (doc.note) { st.textContent = doc.note; st.hidden = false; } else st.hidden = true;
@@ -245,6 +245,7 @@ $('#btn-export').addEventListener('click', () => {
   editor.deselect();
   $('#opt-flatten').checked = store.prefs.flatten;
   $('#opt-flatten').closest('label').hidden = state.doc.kind !== 'pdf' || !state.fieldDefs.length;
+  $('#more-sheet [data-more="autofill"]').hidden = !state.fieldDefs.some(f => f.type === 'text');
   $('#export-sheet [data-export="share"]').hidden = !(navigator.share && navigator.canShare);
   showSheet($('#export-sheet'), { onClose: () => { exp.token++; } });
   prepareExport();
