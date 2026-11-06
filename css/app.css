@@ -330,7 +330,8 @@ textarea.fld { overflow: hidden; }
 .install-hint .share-glyph { display: inline-block; font-size: 15px; }
 
 /* ---------- v2 polish ---------- */
-.tool-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tool-grid .tool.smart { background: var(--accent-2); color: var(--accent); border-color: transparent; }
 .tool-grid .tool { background: var(--paper-2); border: 1px solid var(--line); min-height: 72px; font-size: 12px; }
 .tool-grid .tool.on { background: var(--accent-2); border-color: var(--accent); }
 .toolbar .tool { flex: 1 1 0; min-width: 0; }

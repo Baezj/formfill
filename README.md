@@ -10,7 +10,8 @@ A personal, browser-only form filler. Open a PDF, a photo of a form, or a Word f
 - **Photos / scans** — open an image (or take one with the camera) and fill it like a page.
 - **Word (.docx)** — converted in the browser to pages you can fill and sign (layout is approximate).
 - **Signatures & initials** — draw, type in a script font, or upload a photo of your signature (white background removed). Saved for one-tap reuse.
-- **Quick fill** — keep your name, address, phone, email, etc. in Settings and drop them onto any form with one tap; auto-fill matching PDF fields.
+- **Smart fill** — keep your name, address, phone, email, etc. in Settings. One tap fills matching PDF form fields, and on flat PDFs it reads the page text, finds "Name: ____", "Date", "Signature" and the like, and places your details, today's date and your saved signature in the right spots. **My info** chips drop any single detail wherever you tap.
+- **Next field** — jumps through empty fields on long forms, zooming in so they're readable on a phone.
 - **Finish** — flatten and download, share (Save to Files / AirDrop / email on iOS), print, or open in a new tab. Undo/redo, pinch to zoom, multi-page, add blank or photo pages.
 
 ## Notes

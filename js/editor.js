@@ -2,6 +2,7 @@
 import { pdfjsLib } from './loaders.js';
 import { store, formatDate } from './store.js';
 import { pickSignature } from './signature.js';
+import { suggestForPage } from './smart.js';
 import { toast } from './ui.js';
 
 const $ = s => document.querySelector(s);
@@ -291,6 +292,39 @@ export class Editor {
     if (f.h * this.zoom < 22 && matchMedia('(pointer: coarse)').matches) this.setZoom(Math.min(2.2, 26 / f.h));
     setTimeout(() => { try { target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch { /* ignore */ } }, 30);
     return true;
+  }
+  // Smart fill for flat pages: place details / date / signature next to detected labels.
+  async smartFill() {
+    if (!this.pdf || this.doc.kind !== 'pdf') return { placed: 0, signs: 0, needSig: false };
+    const sig = store.sigsOf('signature')[0], ini = store.sigsOf('initials')[0];
+    let placed = 0, signs = 0, needSig = false;
+    const overlaps = (a, b) => a.page === b.page && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    const additions = [];
+    for (let i = 0; i < this.doc.pages.length; i++) {
+      const pg = this.doc.pages[i]; if (pg.added) continue;
+      if (this.fieldDefs.some(f => f.page === i)) continue; // real form fields handle this page
+      let sugg = [];
+      try { sugg = await suggestForPage(await this.pdf.getPage(i + 1), i, pg); } catch (e) { console.warn('smart', e); }
+      for (const s of sugg) {
+        let a;
+        if (s.kind === 'text') a = { id: uid(), page: i, type: 'text', x: s.x, y: s.y, w: s.w, h: s.h, size: s.size, bold: false, color: store.prefs.color, text: s.text };
+        else {
+          const img = s.kind === 'sign' ? sig : ini;
+          if (!img) { needSig = true; continue; }
+          const ar = img.w / img.h; let h = s.h, w = h * ar; if (w > s.w) { w = s.w; h = w / ar; }
+          a = { id: uid(), page: i, type: 'image', x: s.x, y: s.y + (s.h - h), w, h, imgId: this.storeImage(img.dataUrl) };
+        }
+        if (this.doc.annots.some(x => overlaps(x, a)) || additions.some(x => overlaps(x, a))) continue;
+        additions.push(a); if (a.type === 'image') signs++; else placed++;
+      }
+    }
+    if (additions.length) {
+      this.pushHistory();
+      this.doc.annots.push(...additions);
+      this.renderAllAnnots(); this.onChange();
+      const first = this.annotEl(additions[0].id); if (first) setTimeout(() => first.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);
+    }
+    return { placed, signs, needSig };
   }
   emptyFieldCount() {
     return [...this.root.querySelectorAll('.fld')].filter(el => !el.disabled && (el.tagName === 'INPUT' && el.type === 'text' || el.tagName === 'TEXTAREA') && !el.value).length;

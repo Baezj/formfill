@@ -121,7 +121,8 @@ async function openDoc(doc, pdf = null) {
   if (!doc.thumb) { doc.thumb = await editor.thumbnail(); }
   await save(true);
   if (pdf && pdf.isPureXfa) toast('This is an XFA form; it may show a placeholder page. Try "Print to PDF" from another app first.', 6000);
-  else if (state.fieldDefs.length) toast(`${state.fieldDefs.length} fillable field${state.fieldDefs.length === 1 ? '' : 's'} found — tap them to type.`, 3200);
+  else if (state.fieldDefs.length) toast(`${state.fieldDefs.length} fillable field${state.fieldDefs.length === 1 ? '' : 's'} found — tap them, or use Smart fill (More).`, 3600);
+  else if (pdf && store.profile.fullName) toast('No form fields in this PDF — try Smart fill (More) to place your details.', 3600);
   history.pushState({ doc: doc.id }, '');
 }
 
@@ -183,6 +184,25 @@ $('#tools-sheet').addEventListener('click', e => {
   const t = editor.setTool(b.dataset.tool); if (t) hintFor(t);
   $('#tool-more').classList.toggle('on', !!t);
 });
+async function smartFill() {
+  if (!state.doc) return;
+  busy('Reading the form…');
+  let msg;
+  try {
+    const n = editor.autofill();
+    const r = await editor.smartFill();
+    const parts = [];
+    if (n) parts.push(`${n} field${n === 1 ? '' : 's'}`);
+    if (r.placed) parts.push(`${r.placed} detail${r.placed === 1 ? '' : 's'}`);
+    if (r.signs) parts.push(`${r.signs} signature${r.signs === 1 ? '' : 's'}`);
+    msg = parts.length ? `Filled ${parts.join(', ')} — check them and adjust anything that landed off.` : 'Nothing to fill automatically here. Tap Text / Sign to place things by hand.';
+    if (r.needSig) msg += ' Add a signature (Settings) to place it automatically.';
+    if (!store.profile.fullName && !n && !r.placed) msg = 'Add your details in Settings → My details, then Smart fill can place them for you.';
+  } catch (e) { console.error(e); msg = 'Smart fill failed: ' + (e.message || e); }
+  finally { busy(false); }
+  toast(msg, 4500);
+}
+$('#tools-sheet').addEventListener('click', e => { const b = e.target.closest('button[data-action="smartfill"]'); if (b) { hideSheet(); smartFill(); } });
 $('#next-field').addEventListener('click', () => { if (!editor.nextField()) toast('No text fields on this form'); updateNextField(); });
 function updateNextField() {
   const pill = $('#next-field');
@@ -224,7 +244,7 @@ $('#image-annot-input').addEventListener('change', async e => {
 
 // more menu
 $('#btn-more').addEventListener('click', () => {
-  $('#more-sheet [data-more="autofill"]').hidden = !state.fieldDefs.some(f => f.type === 'text');
+  $('#more-sheet [data-more="autofill"]').hidden = state.doc.kind !== 'pdf' && !state.fieldDefs.length;
   showSheet($('#more-sheet'));
 });
 $('#more-sheet').addEventListener('click', async e => {
@@ -232,7 +252,7 @@ $('#more-sheet').addEventListener('click', async e => {
   hideSheet();
   const act = b.dataset.more;
   if (act === 'rename') renameDoc();
-  else if (act === 'autofill') { const n = editor.autofill(); toast(n ? `Filled ${n} field${n === 1 ? '' : 's'}` : 'Nothing matched. Check your details in Settings.'); }
+  else if (act === 'autofill') smartFill();
   else if (act === 'addpage') $('#add-page-input').click();
   else if (act === 'addblank') editor.addPages([{ w: LETTER.w, h: LETTER.h, rotation: 0, image: null }]);
   else if (act === 'clear') { if (await confirmDialog('Remove all text, marks and signatures you added?')) editor.clearAnnots(); }
@@ -278,7 +298,6 @@ $('#btn-export').addEventListener('click', () => {
   editor.deselect();
   $('#opt-flatten').checked = store.prefs.flatten;
   $('#opt-flatten').closest('label').hidden = state.doc.kind !== 'pdf' || !state.fieldDefs.length;
-  $('#more-sheet [data-more="autofill"]').hidden = !state.fieldDefs.some(f => f.type === 'text');
   const canShare = !!(navigator.share && navigator.canShare);
   $('#export-sheet [data-export="share"]').hidden = !canShare;
   // In an iOS home-screen app, blob downloads / new tabs are unreliable: Share is the one that works.
