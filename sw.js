@@ -1,13 +1,13 @@
 // Service worker: caches the app shell so FormFill works offline once visited.
 // Bump VERSION on every deploy that touches vendor/ (pdf.js main + worker must match).
-const VERSION = 'formfill-v2';
+const VERSION = 'formfill-v3';
 const SHELL = [
   './', './index.html', './css/app.css', './manifest.webmanifest',
-  './js/app.js', './js/db.js', './js/editor.js', './js/export.js', './js/loaders.js', './js/signature.js', './js/store.js', './js/ui.js',
+  './js/app.js', './js/db.js', './js/editor.js', './js/export.js', './js/loaders.js', './js/signature.js', './js/smart.js', './js/store.js', './js/ui.js',
   './vendor/pdf-lib.min.js', './vendor/signature_pad.umd.min.js', './vendor/pdf.min.mjs', './vendor/pdf.worker.min.mjs',
   './vendor/mammoth.browser.min.js', './vendor/html2canvas.min.js',
   './vendor/fonts/GreatVibes-Regular.woff2', './vendor/fonts/Allura-Regular.woff2', './vendor/fonts/Sacramento-Regular.woff2', './vendor/fonts/DancingScript.woff2', './vendor/fonts/HomemadeApple-Regular.woff2', './vendor/fonts/Caveat.woff2',
-  './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'
+  './icons/icon.svg', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'
 ];
 
 self.addEventListener('install', e => {

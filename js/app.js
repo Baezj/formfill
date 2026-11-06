@@ -408,7 +408,7 @@ $('#setup-hint-go').addEventListener('click', () => $('#btn-settings').click());
 $('#setup-hint-close').addEventListener('click', () => { localStorage.setItem('formfill.setupHintDismissed', '1'); updateSetupHint(); });
 $('#install-hint-close').addEventListener('click', () => { $('#install-hint').hidden = true; localStorage.setItem('formfill.installHintDismissed', '1'); });
 
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
