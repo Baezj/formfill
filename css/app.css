@@ -328,3 +328,40 @@ textarea.fld { overflow: hidden; }
 
 .install-hint { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; padding: 12px 8px 12px 14px; background: var(--accent-2); border: 1px solid var(--line); border-radius: 14px; font-size: 14px; color: var(--ink); }
 .install-hint .share-glyph { display: inline-block; font-size: 15px; }
+
+/* ---------- v2 polish ---------- */
+.tool-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tool-grid .tool { background: var(--paper-2); border: 1px solid var(--line); min-height: 72px; font-size: 12px; }
+.tool-grid .tool.on { background: var(--accent-2); border-color: var(--accent); }
+.toolbar .tool { flex: 1 1 0; min-width: 0; }
+@media (max-width: 699px) { .toolbar { overflow: hidden; } }
+
+.next-field {
+  position: absolute; right: 12px; bottom: calc(var(--sab) + 84px + var(--kb)); z-index: 5;
+  display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; border-radius: 999px; border: 0;
+  background: var(--accent); color: #fff; font-weight: 650; font-size: 14px; box-shadow: var(--shadow);
+}
+.next-field svg { width: 18px; height: 18px; }
+.next-field:active { transform: scale(.97); }
+@media (min-width: 700px) { .next-field { bottom: 104px; right: 24px; } }
+
+.fld.filled { background: rgba(47,91,255,.02); border-color: rgba(47,91,255,.18); }
+.fld.current { box-shadow: 0 0 0 3px rgba(47,91,255,.35); border-color: var(--accent); }
+/* Tiny boxes get a tap-sized hit area without moving on the page. */
+.fld[type="checkbox"], .fld[type="radio"] { transform: scale(max(1, 20px / (var(--z) * var(--fw) * 1px))); transform-origin: center; }
+.fld[type="checkbox"]:checked, .fld[type="radio"]:checked { background: rgba(47,91,255,.04); }
+
+.sel-bar .done { color: #7dff9b; }
+.sel-bar:not([data-editing]) .done { display: none; }
+.sel-bar[data-editing] [data-act="dup"], .sel-bar[data-editing] [data-act="delete"] { display: none; }
+
+.setup-hint { background: var(--surface); }
+.setup-hint .btn { flex: none; }
+.empty-state { display: grid; gap: 12px; padding: 8px 4px 0; }
+.empty-state .step { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--ink-2); line-height: 1.4; }
+.empty-state .step b { color: var(--ink); }
+.empty-state .num { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--inv-bg); color: var(--inv-fg); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+
+.card .badge { position: absolute; top: 8px; left: 8px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: #1f9d55; color: #fff; letter-spacing: .02em; }
+.card .kind { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--paper); font-size: 10px; font-weight: 700; color: var(--ink-3); margin-right: 6px; text-transform: uppercase; letter-spacing: .04em; }
+#sel-bar:not([hidden]) ~ #next-field { display: none; }

@@ -216,11 +216,13 @@ export class Editor {
           el.style.paddingLeft = `calc(var(--z) * ${((cell - charW) / 2).toFixed(2)}px)`;
           el.style.textAlign = 'left';
         }
-        el.addEventListener('input', () => { vals[f.name] = el.value; this.onChange(); });
+        el.addEventListener('input', () => { vals[f.name] = el.value; el.classList.toggle('filled', !!el.value); this.onChange(); });
+        el.classList.toggle('filled', !!el.value);
         if (f.multiLine) el.rows = 1;
       } else if (f.type === 'checkbox' || f.type === 'radio') {
         el = document.createElement('input');
         el.type = f.type; el.dataset.export = f.exportValue;
+        el.style.setProperty('--fw', Math.min(f.w, f.h));
         if (f.type === 'radio') el.name = 'r_' + f.name;
         el.checked = cur === true || cur === f.exportValue;
         el.addEventListener('change', () => {
@@ -248,8 +250,9 @@ export class Editor {
         el.style.fontSize = `calc(var(--z) * ${clamp(f.h * 0.6, 7, 12).toFixed(1)}px)`;
         el.addEventListener('change', () => {
           vals[f.name] = f.type === 'list' ? [...el.selectedOptions].map(o => o.value) : el.value;
-          this.onChange();
+          el.classList.toggle('filled', !!el.value); this.onChange();
         });
+        el.classList.toggle('filled', !!el.value);
       } else if (f.type === 'sig') {
         el = document.createElement('div');
         el.className = 'sig-field'; el.textContent = 'Tap to sign';
@@ -271,6 +274,26 @@ export class Editor {
       layer.appendChild(el);
     }
     this.syncSigFields();
+  }
+  // Jump to the next empty text/choice field (wrapping around); returns false when there are none.
+  nextField() {
+    const els = [...this.root.querySelectorAll('.fld')].filter(el => !el.disabled && (el.tagName === 'INPUT' && el.type === 'text' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'));
+    if (!els.length) return false;
+    const cur = els.indexOf(document.activeElement);
+    const order = [...els.slice(cur + 1), ...els.slice(0, cur + 1)];
+    const target = order.find(el => !el.value) || order[0];
+    if (!target) return false;
+    for (const el of els) el.classList.remove('current');
+    target.classList.add('current');
+    const f = this.fieldDefs.find(d => d.name === target.dataset.name) || { h: 20 };
+    this.deselect();
+    target.focus({ preventScroll: true });
+    if (f.h * this.zoom < 22 && matchMedia('(pointer: coarse)').matches) this.setZoom(Math.min(2.2, 26 / f.h));
+    setTimeout(() => { try { target.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch { /* ignore */ } }, 30);
+    return true;
+  }
+  emptyFieldCount() {
+    return [...this.root.querySelectorAll('.fld')].filter(el => !el.disabled && (el.tagName === 'INPUT' && el.type === 'text' || el.tagName === 'TEXTAREA') && !el.value).length;
   }
   zoomToField(el, f) {
     if (f.h * this.zoom >= 22 || !matchMedia('(pointer: coarse)').matches) return;
@@ -379,6 +402,7 @@ export class Editor {
     this.editingId = id;
     const el = this.annotEl(id); el.classList.add('editing');
     const t = el.querySelector('.txt'); t.contentEditable = 'true'; t.focus();
+    this.updateSelBar();
     const sel = window.getSelection(); if (sel && t.lastChild) { const r = document.createRange(); r.selectNodeContents(t); r.collapse(false); sel.removeAllRanges(); sel.addRange(r); }
     this._editStart = a.text;
   }
@@ -387,6 +411,7 @@ export class Editor {
     const id = this.editingId; this.editingId = null;
     const a = this.getAnnot(id); const el = this.annotEl(id);
     if (el) { el.classList.remove('editing'); const t = el.querySelector('.txt'); t.contentEditable = 'false'; t.blur(); }
+    this.updateSelBar();
     if (!a) return;
     if (!a.text || !a.text.trim()) {
       this.doc.annots = this.doc.annots.filter(x => x.id !== id); if (el) el.remove(); if (this.selectedId === id) this.select(null);
@@ -428,7 +453,7 @@ export class Editor {
   // ---------------- tools ----------------
   setTool(t) {
     this.tool = this.tool === t ? null : t;
-    for (const b of document.querySelectorAll('#toolbar .tool[data-tool]')) b.classList.toggle('on', b.dataset.tool === this.tool);
+    for (const b of document.querySelectorAll('.tool[data-tool]')) b.classList.toggle('on', b.dataset.tool === this.tool);
     $('#editor').classList.toggle('tool-active', !!this.tool);
     $('#editor').classList.toggle('tool-draw', this.tool === 'draw');
     if (this.tool) this.deselect();
@@ -481,12 +506,14 @@ export class Editor {
     const bar = $('#sel-bar'); const a = this.selectedId && this.getAnnot(this.selectedId);
     if (!a) { bar.hidden = true; return; }
     bar.hidden = false; bar.dataset.kind = a.type === 'text' ? 'text' : a.type === 'image' ? 'image' : 'mark';
+    if (this.editingId === a.id) bar.dataset.editing = '1'; else delete bar.dataset.editing;
     $('#sel-swatch').style.background = a.color || '#111';
     bar.querySelector('[data-act="bold"]').style.opacity = a.bold ? 1 : .55;
   }
   selAction(act) {
     const a = this.selectedId && this.getAnnot(this.selectedId); if (!a) return;
     const pg = this.doc.pages[a.page];
+    if (act === 'done') { this.stopEditing(); this.updateSelBar(); return; }
     if (act === 'delete') return this.deleteAnnot(a.id);
     if (act === 'dup') { const c = { ...a, id: uid(), x: clamp(a.x + 12, 0, pg.w - a.w), y: clamp(a.y + 12, 0, pg.h - a.h) }; delete c.sigField; return this.addAnnot(c); }
     this.pushHistory();

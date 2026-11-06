@@ -23,8 +23,10 @@ async function renderHome() {
   for (const d of list) {
     const card = document.createElement('button');
     card.className = 'card'; card.dataset.id = d.id;
+    const kind = d.kind === 'pdf' ? 'PDF' : 'Pages';
     card.innerHTML = `<div class="thumb">${d.thumb ? `<img src="${d.thumb}" alt="">` : ''}</div>
-      <div class="meta"><div class="name"></div><div class="when">${timeAgo(d.updatedAt)} · ${d.pageCount} page${d.pageCount === 1 ? '' : 's'}</div></div>
+      ${d.exportedAt ? `<span class="badge">Sent ${timeAgo(d.exportedAt)}</span>` : ''}
+      <div class="meta"><div class="name"></div><div class="when"><span class="kind">${kind}</span>${timeAgo(d.updatedAt)} · ${d.pageCount} page${d.pageCount === 1 ? '' : 's'}</div></div>
       <span class="card-menu" data-menu="${d.id}" role="button" aria-label="Options">⋯</span>`;
     card.querySelector('.name').textContent = d.name;
     grid.appendChild(card);
@@ -115,6 +117,7 @@ async function openDoc(doc, pdf = null) {
   if (doc.note) { st.textContent = doc.note; st.hidden = false; } else st.hidden = true;
   $('#home').hidden = true; $('#editor').hidden = false;
   await editor.load(doc, pdf, state.fieldDefs);
+  updateNextField();
   if (!doc.thumb) { doc.thumb = await editor.thumbnail(); }
   await save(true);
   if (pdf && pdf.isPureXfa) toast('This is an XFA form; it may show a placeholder page. Try "Print to PDF" from another app first.', 6000);
@@ -133,6 +136,7 @@ async function closeDoc() {
 
 function markDirty() {
   state.dirty = true;
+  clearTimeout(state.nfTimer); state.nfTimer = setTimeout(updateNextField, 400);
   clearTimeout(state.saveTimer);
   state.saveTimer = setTimeout(() => save(), 300);
 }
@@ -153,7 +157,7 @@ async function goHome() {
   await closeDoc();
   $('#editor').hidden = true; $('#home').hidden = false;
   store.onSaveError = () => toast('Could not save settings — this browser\'s storage is full or blocked.', 5000);
-store.init().then(renderHome);
+store.init().then(() => { renderHome(); updateSetupHint(); });
 }
 
 $('#btn-undo').addEventListener('click', () => editor.undo());
@@ -168,10 +172,24 @@ async function renameDoc() {
 $('#toolbar').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.tool) { const t = editor.setTool(b.dataset.tool); if (t) hintFor(t); }
+  else if (b.id === 'tool-more') showSheet($('#tools-sheet'));
   else if (b.id === 'zoom-in') editor.zoomBy(1.25);
   else if (b.id === 'zoom-out') editor.zoomBy(0.8);
   else if (b.id === 'zoom-fit') editor.fitWidth();
 });
+$('#tools-sheet').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tool]'); if (!b) return;
+  hideSheet();
+  const t = editor.setTool(b.dataset.tool); if (t) hintFor(t);
+  $('#tool-more').classList.toggle('on', !!t);
+});
+$('#next-field').addEventListener('click', () => { if (!editor.nextField()) toast('No text fields on this form'); updateNextField(); });
+function updateNextField() {
+  const pill = $('#next-field');
+  const has = state.fieldDefs.some(f => f.type === 'text' || f.type === 'combo' || f.type === 'list');
+  pill.hidden = !has;
+  if (has) { const n = editor.emptyFieldCount(); $('#next-field-label').textContent = n ? `Next field · ${n} left` : 'Next field'; }
+}
 function hintFor(t) {
   const m = { text: 'Tap where the text should go', check: 'Tap to place check marks · tap Check again to stop', cross: 'Tap to place X marks · tap X again to stop', date: 'Tap where today\'s date goes', sign: 'Tap where to sign', initials: 'Tap where to initial', fill: 'Tap where to drop a detail', image: 'Tap where the image goes', draw: 'Draw with your finger or pen. Tap Draw again to stop.' };
   toast(m[t] || '', 1600);
@@ -285,6 +303,7 @@ $('#export-sheet').addEventListener('click', e => {
       printBlob(blob, url);
     }
   } catch (err) { console.error(err); toast('Export failed: ' + (err.message || err), 5000); }
+  state.doc.exportedAt = Date.now(); markDirty();
   hideSheet();
 });
 function downloadBlob(url, name) {
@@ -362,6 +381,12 @@ if (window.visualViewport) {
 // On iOS Safari (not yet on the home screen) nudge once toward Add to Home Screen: that is what keeps
 // IndexedDB from being evicted after a week of non-use, and what makes the app full-screen/offline.
 if (isIOS && !standalone && !localStorage.getItem('formfill.installHintDismissed')) $('#install-hint').hidden = false;
+function updateSetupHint() {
+  const needs = !store.profile.fullName && !store.signatures.length && !localStorage.getItem('formfill.setupHintDismissed');
+  $('#setup-hint').hidden = !needs;
+}
+$('#setup-hint-go').addEventListener('click', () => $('#btn-settings').click());
+$('#setup-hint-close').addEventListener('click', () => { localStorage.setItem('formfill.setupHintDismissed', '1'); updateSetupHint(); });
 $('#install-hint-close').addEventListener('click', () => { $('#install-hint').hidden = true; localStorage.setItem('formfill.installHintDismissed', '1'); });
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
@@ -378,4 +403,4 @@ if ('launchQueue' in window) {
 }
 
 store.onSaveError = () => toast('Could not save settings — this browser\'s storage is full or blocked.', 5000);
-store.init().then(renderHome);
+store.init().then(() => { renderHome(); updateSetupHint(); });

@@ -30,7 +30,7 @@ function open() {
 }
 
 function metaOf(d) {
-  return { id: d.id, name: d.name, updatedAt: d.updatedAt, createdAt: d.createdAt, kind: d.kind, thumb: d.thumb || null, pageCount: d.pages ? d.pages.length : 0 };
+  return { id: d.id, name: d.name, updatedAt: d.updatedAt, createdAt: d.createdAt, exportedAt: d.exportedAt || null, kind: d.kind, thumb: d.thumb || null, pageCount: d.pages ? d.pages.length : 0 };
 }
 
 function tx(stores, mode, fn) {
