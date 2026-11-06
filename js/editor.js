@@ -38,8 +38,55 @@ export class Editor {
     this.buildPages();
     this.fitWidth();
     this.updateUndoButtons();
+    this.computeHotspots();
   }
 
+  // "Tap to sign" / "Tap for date" spots on signature lines that aren't real form fields.
+  async computeHotspots() {
+    this.hotspots = [];
+    if (!this.pdf || this.doc.kind !== 'pdf') return;
+    const token = this._hsToken = (this._hsToken || 0) + 1;
+    for (let i = 0; i < this.doc.pages.length; i++) {
+      const pg = this.doc.pages[i]; if (pg.added) continue;
+      let sugg = [];
+      try { sugg = await suggestForPage(await this.pdf.getPage(i + 1), i, pg); } catch { /* ignore */ }
+      if (token !== this._hsToken || !this.doc) return;
+      for (const s of sugg) {
+        if (s.kind === 'text' && s.label && !/\bdate\b/i.test(s.label)) continue;      // only sign / initials / date spots
+        if (s.kind === 'text' && !/\bdate\b/i.test(s.label)) continue;
+        const box = { page: i, x: s.x, y: s.y, w: s.w, h: s.h };
+        if (this.fieldDefs.some(f => f.page === i && this.overlaps(f, box))) continue;   // a real field covers it
+        this.hotspots.push({ id: 'h' + i + '_' + this.hotspots.length, kind: s.kind === 'text' ? 'date' : s.kind, ...box });
+      }
+    }
+    this.renderHotspots();
+  }
+  overlaps(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+  renderHotspots() {
+    for (const el of this.root.querySelectorAll('.hotspot')) el.remove();
+    for (const h of this.hotspots || []) {
+      const layer = this.pageEls[h.page]?.querySelector('.pg-fields'); if (!layer) continue;
+      const el = document.createElement('div');
+      el.className = 'fld sig-field hotspot'; el.dataset.hot = h.id;
+      el.textContent = h.kind === 'sign' ? 'Tap to sign' : h.kind === 'initials' ? 'Tap to initial' : 'Tap for date';
+      el.style.left = `calc(var(--z) * ${h.x}px)`; el.style.top = `calc(var(--z) * ${h.y}px)`;
+      el.style.width = `calc(var(--z) * ${h.w}px)`; el.style.height = `calc(var(--z) * ${h.h}px)`;
+      el.addEventListener('pointerdown', ev => ev.stopPropagation());
+      el.addEventListener('click', async () => {
+        if (h.kind === 'date') {
+          const size = Math.min(12, Math.max(9, Math.round(h.h * 0.55)));
+          this.addAnnot({ id: uid(), page: h.page, type: 'text', x: h.x + 2, y: h.y + h.h - size * 1.2 - 4, w: Math.max(80, h.w - 4), h: size * 1.2 + 4, size, bold: false, color: store.prefs.color, text: formatDate() });
+        } else {
+          const sig = await pickSignature(h.kind === 'initials' ? 'initials' : 'signature'); if (!sig) return;
+          const a = this.fitImageInto(sig, h); a.x = h.x + 2; a.y = h.y + h.h - a.h; // sit on the line, from the left
+          this.addAnnot(a);
+        }
+        this.syncSigFields();
+      });
+      layer.appendChild(el);
+    }
+    this.syncSigFields();
+  }
   destroyPages() {
     for (const el of this.pageEls) this.observer.unobserve(el);
     for (const t of this.renderTasks.values()) { try { t.cancel(); } catch { /* ignore */ } }
@@ -297,15 +344,18 @@ export class Editor {
   async smartFill() {
     if (!this.pdf || this.doc.kind !== 'pdf') return { placed: 0, signs: 0, needSig: false };
     const sig = store.sigsOf('signature')[0], ini = store.sigsOf('initials')[0];
-    let placed = 0, signs = 0, needSig = false;
+    let placed = 0, signs = 0, needSig = false, already = 0;
     const overlaps = (a, b) => a.page === b.page && a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
     const additions = [];
     for (let i = 0; i < this.doc.pages.length; i++) {
       const pg = this.doc.pages[i]; if (pg.added) continue;
-      if (this.fieldDefs.some(f => f.page === i)) continue; // real form fields handle this page
+      const hasFields = this.fieldDefs.some(f => f.page === i);
       let sugg = [];
       try { sugg = await suggestForPage(await this.pdf.getPage(i + 1), i, pg); } catch (e) { console.warn('smart', e); }
       for (const s of sugg) {
+        // On pages with real fields, only signature / initials / date spots make sense, and never over a field.
+        if (hasFields && (s.kind === 'text' && !/\bdate\b/i.test(s.label || ''))) continue;
+        if (this.fieldDefs.some(f => f.page === i && this.overlaps(f, s))) continue;
         let a;
         if (s.kind === 'text') a = { id: uid(), page: i, type: 'text', x: s.x, y: s.y, w: s.w, h: s.h, size: s.size, bold: false, color: store.prefs.color, text: s.text };
         else {
@@ -314,7 +364,8 @@ export class Editor {
           const ar = img.w / img.h; let h = s.h, w = h * ar; if (w > s.w) { w = s.w; h = w / ar; }
           a = { id: uid(), page: i, type: 'image', x: s.x, y: s.y + (s.h - h), w, h, imgId: this.storeImage(img.dataUrl) };
         }
-        if (this.doc.annots.some(x => overlaps(x, a)) || additions.some(x => overlaps(x, a))) continue;
+        const zone = { page: i, x: s.x, y: s.y, w: s.w, h: s.h };
+        if (this.doc.annots.some(x => overlaps(x, zone)) || additions.some(x => overlaps(x, zone))) { already++; continue; }
         additions.push(a); if (a.type === 'image') signs++; else placed++;
       }
     }
@@ -324,7 +375,7 @@ export class Editor {
       this.renderAllAnnots(); this.onChange();
       const first = this.annotEl(additions[0].id); if (first) setTimeout(() => first.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);
     }
-    return { placed, signs, needSig };
+    return { placed, signs, needSig, already };
   }
   emptyFieldCount() {
     return [...this.root.querySelectorAll('.fld')].filter(el => !el.disabled && (el.tagName === 'INPUT' && el.type === 'text' || el.tagName === 'TEXTAREA') && !el.value).length;
@@ -337,7 +388,12 @@ export class Editor {
   }
   syncSigFields() {
     const signed = new Set((this.doc.annots || []).map(a => a.sigField).filter(Boolean));
-    for (const el of this.root.querySelectorAll('.sig-field')) el.style.display = signed.has(el.dataset.name) ? 'none' : '';
+    for (const el of this.root.querySelectorAll('.sig-field:not(.hotspot)')) el.style.display = signed.has(el.dataset.name) ? 'none' : '';
+    // Hotspots disappear once something has been placed over them.
+    for (const h of this.hotspots || []) {
+      const el = this.root.querySelector(`.hotspot[data-hot="${h.id}"]`); if (!el) continue;
+      el.style.display = (this.doc.annots || []).some(a => a.page === h.page && this.overlaps(a, h)) ? 'none' : '';
+    }
   }
   fitImageInto(sig, box) {
     const ar = sig.w / sig.h;
@@ -776,6 +832,7 @@ export class Editor {
     for (const pg of pages) { pg.added = true; this.doc.pages.push(pg); }
     this.destroyPages();
     this.buildPages();
+    this.renderHotspots();
     this.onChange();
     requestAnimationFrame(() => this.pageEls[this.pageEls.length - 1].scrollIntoView({ behavior: 'smooth' }));
   }

@@ -21,7 +21,7 @@ const RULES = [
   [/\b(full name|print(ed)? name|your name|name of applicant|applicant|name)\b/i, 'fullName', 'text']
 ];
 const BLANK = /^[\s_.—–-]{3,}$/;      // underscores / dots / dashes used as a blank
-const LABEL = /[:：]\s*$|^[A-Za-z][A-Za-z /()'&-]{1,40}$/;
+const LABEL = /[:：]\s*$|^[A-Za-z][A-Za-z0-9 /()'’.,&-]{1,60}$/;
 
 function lineGroups(items) {
   // Group text items into lines by their vertical position.
@@ -61,11 +61,16 @@ export async function suggestForPage(pdfjsPage, pageIdx, pg) {
   const valueFor = key => key === 'today' ? formatDate() : (p[key] || '');
 
   lines.forEach((line, li) => {
-    line.items.forEach((it, idx) => {
-      const text = it.str.trim();
-      if (BLANK.test(text) || !LABEL.test(text) || text.length > 48) return;
+    line.items.forEach((it0, idx) => {
+      let it = it0; const text = it.str.trim();
+      if (BLANK.test(text) || !LABEL.test(text) || text.length > 64) return;
       const rule = RULES.find(([re]) => re.test(text)); if (!rule) return;
       const [, key, kind] = rule;
+      // "Employee's signature (This form is not valid unless you sign it.)": fold a parenthetical
+      // continuation into the label so it isn't mistaken for a sentence.
+      while (line.items[idx + 1] && /^\(/.test(line.items[idx + 1].str.trim()) && line.items[idx + 1].x - it.right < 30) {
+        const n = line.items[idx + 1]; it = { ...it, right: n.right, w: n.right - it.x }; idx++;
+      }
       // Where does the blank go? A run of underscores on the same line, the gap to the next item,
       // or — for caption-style labels ("Signature" under a rule, no colon) — the space above the caption.
       const next = line.items[idx + 1];
@@ -75,6 +80,7 @@ export async function suggestForPage(pdfjsPage, pageIdx, pg) {
       if (next && BLANK.test(next.str.trim())) { bx = next.x; bw = Math.max(40, next.w); used.add(next); }
       else if (caption) {
         if (next && next.x - it.right < 30) return;        // part of a sentence
+        if (text.split(/\s+/).length > 3 || /[,;]/.test(text)) return; // captions are short ("Employee's signature", "Date")
         const prevLine = lines[li - 1];
         if (prevLine && prevLine.items.some(o => o.right > it.x - 4 && o.x < it.x + 200 && label.y - (o.y + o.h) < 10)) return; // text directly above: not a blank
         above = true; bx = label.x; bw = Math.min(240, (next ? next.x - 12 : pg.w - 36) - bx);

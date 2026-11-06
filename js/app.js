@@ -13,6 +13,7 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platfor
 const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const state = { doc: null, pdf: null, fieldDefs: [], saveTimer: null, dirty: false };
 const editor = new Editor({ onChange: markDirty });
+window.formfill = { editor, state }; // handy for debugging in the console
 
 // ---------------- home ----------------
 async function renderHome() {
@@ -241,7 +242,9 @@ async function smartFill() {
     if (n) parts.push(`${n} field${n === 1 ? '' : 's'}`);
     if (r.placed) parts.push(`${r.placed} detail${r.placed === 1 ? '' : 's'}`);
     if (r.signs) parts.push(`${r.signs} signature${r.signs === 1 ? '' : 's'}`);
-    msg = parts.length ? `Filled ${parts.join(', ')} — check them and adjust anything that landed off.` : 'Nothing to fill automatically here. Tap Text / Sign to place things by hand.';
+    msg = parts.length ? `Filled ${parts.join(', ')} — check them and adjust anything that landed off.`
+      : r.already ? 'Everything that can be auto-filled is already in place.'
+      : 'Nothing to fill automatically here. Tap Text / Sign to place things by hand.';
     if (r.needSig) msg += ' Add a signature (Settings) to place it automatically.';
     if (!store.profile.fullName && !n && !r.placed) msg = 'Add your details in Settings → My details, then Smart fill can place them for you.';
   } catch (e) { console.error(e); msg = 'Smart fill failed: ' + (e.message || e); }
