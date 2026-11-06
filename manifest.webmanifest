@@ -1,0 +1,20 @@
+{
+  "name": "FormFill",
+  "short_name": "FormFill",
+  "description": "Fill, sign and print PDF, photo and Word forms — entirely on your device.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ebe8e1",
+  "theme_color": "#17181c",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "file_handlers": [
+    { "action": "./", "accept": { "application/pdf": [".pdf"], "image/*": [".png", ".jpg", ".jpeg", ".webp"], "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"] } }
+  ]
+}
