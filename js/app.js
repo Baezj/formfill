@@ -3,13 +3,14 @@ import { db } from './db.js';
 import { store, PROFILE_FIELDS, formatDate } from './store.js';
 import { loadPdfFile, loadImageFiles, loadDocxFile, blankDoc, imageToPage, extractFields, openPdfJs, classify, LETTER } from './loaders.js';
 import { Editor } from './editor.js';
-import { buildPdf } from './export.js';
+import { buildPdf, lastBuild } from './export.js';
 import { createSignature, renderSigGrid } from './signature.js';
 import { showSheet, hideSheet, toast, busy, confirmDialog, promptDialog, setupTabs, timeAgo } from './ui.js';
 
 const $ = s => document.querySelector(s);
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const state = { doc: null, pdf: null, fieldDefs: [], saveTimer: null, dirty: false };
 const editor = new Editor({ onChange: markDirty });
 
@@ -58,7 +59,12 @@ $('#btn-open').addEventListener('click', () => $('#file-input').click());
 $('#btn-camera').addEventListener('click', () => $('#camera-input').click());
 $('#btn-blank').addEventListener('click', () => openDoc(blankDoc('Blank page')));
 $('#file-input').addEventListener('change', e => { handleFiles([...e.target.files]); e.target.value = ''; });
-$('#camera-input').addEventListener('change', e => { handleFiles([...e.target.files]); e.target.value = ''; });
+$('#camera-input').addEventListener('change', async e => {
+  const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
+  busy('Preparing photo…');
+  try { const d = await loadImageFiles(files); d.name = 'Scan ' + formatDate(); await openDoc(d); }
+  catch (err) { toast('Could not read that photo'); } finally { busy(false); }
+});
 
 const dz = $('#dropzone');
 for (const evn of ['dragenter', 'dragover']) document.addEventListener(evn, e => { e.preventDefault(); dz.classList.add('over'); });
@@ -79,6 +85,7 @@ async function handleFiles(files) {
   try {
     if (kinds.every(k => k === 'image')) { busy('Preparing photo…'); await openDoc(await loadImageFiles(files)); return; }
     const f = files[0], k = kinds[0];
+    if (files.length > 1) toast(`Opening ${f.name} — one document at a time.`, 3000);
     if (k === 'pdf') { busy('Opening PDF…'); const { doc, pdf } = await loadPdfFile(f, again => Promise.resolve(window.prompt(again ? 'Wrong password. Try again:' : 'This PDF is password protected. Enter the password:'))); await openDoc(doc, pdf); }
     else if (k === 'docx') { busy('Converting Word document…'); await openDoc(await loadDocxFile(f)); }
     else if (k === 'doc') toast('Old .doc files aren\'t supported — save it as .docx or PDF first.');
@@ -110,13 +117,15 @@ async function openDoc(doc, pdf = null) {
   await editor.load(doc, pdf, state.fieldDefs);
   if (!doc.thumb) { doc.thumb = await editor.thumbnail(); }
   await save(true);
-  if (state.fieldDefs.length) toast(`${state.fieldDefs.length} fillable field${state.fieldDefs.length === 1 ? '' : 's'} found — tap them to type.`, 3200);
+  if (pdf && pdf.isPureXfa) toast('This is an XFA form; it may show a placeholder page. Try "Print to PDF" from another app first.', 6000);
+  else if (state.fieldDefs.length) toast(`${state.fieldDefs.length} fillable field${state.fieldDefs.length === 1 ? '' : 's'} found — tap them to type.`, 3200);
   history.pushState({ doc: doc.id }, '');
 }
 
 async function closeDoc() {
   if (!state.doc) return;
   editor.deselect();
+  try { state.doc.thumb = await editor.thumbnail(); } catch { /* keep old */ }
   await save(true);
   editor.destroy();
   state.doc = null; state.pdf = null; state.fieldDefs = [];
@@ -143,7 +152,8 @@ async function goHome() {
   hideSheet();
   await closeDoc();
   $('#editor').hidden = true; $('#home').hidden = false;
-  renderHome();
+  store.onSaveError = () => toast('Could not save settings — this browser\'s storage is full or blocked.', 5000);
+store.init().then(renderHome);
 }
 
 $('#btn-undo').addEventListener('click', () => editor.undo());
@@ -163,7 +173,7 @@ $('#toolbar').addEventListener('click', e => {
   else if (b.id === 'zoom-fit') editor.fitWidth();
 });
 function hintFor(t) {
-  const m = { text: 'Tap where the text should go', check: 'Tap to place check marks', cross: 'Tap to place an X', date: 'Tap where today\'s date goes', sign: 'Tap where to sign', initials: 'Tap where to initial', fill: 'Tap where to drop a detail', image: 'Tap where the image goes', draw: 'Draw with your finger or pen. Tap Draw again to stop.' };
+  const m = { text: 'Tap where the text should go', check: 'Tap to place check marks · tap Check again to stop', cross: 'Tap to place X marks · tap X again to stop', date: 'Tap where today\'s date goes', sign: 'Tap where to sign', initials: 'Tap where to initial', fill: 'Tap where to drop a detail', image: 'Tap where the image goes', draw: 'Draw with your finger or pen. Tap Draw again to stop.' };
   toast(m[t] || '', 1600);
 }
 
@@ -175,8 +185,12 @@ editor.onQuickFill = (page, x, y) => {
   items.push(['Today', formatDate()]);
   if (p.address && p.city) items.push(['Full address', `${p.address}, ${p.city}${p.state ? ', ' + p.state : ''} ${p.zip || ''}`.trim()]);
   for (const s of store.snippets) if (s.value) items.push([s.label || 'Snippet', s.value]);
-  chips.innerHTML = items.map(([l, v], i) => `<button data-i="${i}"><b>${l}</b><span></span></button>`).join('');
-  [...chips.children].forEach((b, i) => { b.querySelector('span').textContent = items[i][1]; });
+  chips.innerHTML = '';
+  items.forEach(([l, v], i) => {
+    const b = document.createElement('button'); b.dataset.i = i;
+    const lab = document.createElement('b'); lab.textContent = l; const val = document.createElement('span'); val.textContent = v;
+    b.append(lab, val); chips.appendChild(b);
+  });
   if (items.length <= 1) chips.insertAdjacentHTML('beforeend', `<p class="muted small">Add your details in Settings → My details to see them here.</p>`);
   chips.onclick = e => { const b = e.target.closest('button[data-i]'); if (!b) return; hideSheet(); editor.placeText(page, x, y, items[+b.dataset.i][1]); };
   showSheet($('#quick-sheet'));
@@ -235,7 +249,8 @@ async function prepareExport() {
     exp.result = { blob, file: new File([blob], name, { type: 'application/pdf' }), name, url: URL.createObjectURL(blob) };
     btns.forEach(b => { b.disabled = false; });
     const kb = Math.round(blob.size / 1024);
-    $('#export-note').textContent = `Ready · ${kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB'}` + (isIOS ? ' · "Share" can save to Files, AirDrop, email or print.' : '');
+    const warn = lastBuild.warnings.length ? ' · ' + lastBuild.warnings.join(' ') : '';
+    $('#export-note').textContent = `Ready · ${kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB'}` + (isIOS ? ' · Share can save to Files, AirDrop, email or print.' : '') + warn;
   } catch (err) {
     console.error(err);
     if (token === exp.token) $('#export-note').textContent = 'Could not build the PDF: ' + (err.message || err);
@@ -246,8 +261,13 @@ $('#btn-export').addEventListener('click', () => {
   $('#opt-flatten').checked = store.prefs.flatten;
   $('#opt-flatten').closest('label').hidden = state.doc.kind !== 'pdf' || !state.fieldDefs.length;
   $('#more-sheet [data-more="autofill"]').hidden = !state.fieldDefs.some(f => f.type === 'text');
-  $('#export-sheet [data-export="share"]').hidden = !(navigator.share && navigator.canShare);
-  showSheet($('#export-sheet'), { onClose: () => { exp.token++; } });
+  const canShare = !!(navigator.share && navigator.canShare);
+  $('#export-sheet [data-export="share"]').hidden = !canShare;
+  // In an iOS home-screen app, blob downloads / new tabs are unreliable: Share is the one that works.
+  const iosApp = isIOS && standalone;
+  for (const k of ['download', 'open', 'print']) $(`#export-sheet [data-export="${k}"]`).hidden = iosApp && canShare;
+  $('#export-sheet').classList.toggle('share-only', iosApp && canShare);
+  showSheet($('#export-sheet'), { onClose: () => { exp.token++; if (exp.result) { const u = exp.result.url; setTimeout(() => URL.revokeObjectURL(u), 120000); } } });
   prepareExport();
 });
 $('#opt-flatten').addEventListener('change', () => { if (!$('#export-sheet').hidden) prepareExport(); });
@@ -325,10 +345,22 @@ async function renderStorage() {
   $('#storage-info').textContent = `${list.length} document${list.length === 1 ? '' : 's'} saved on this device. ${mb}`;
 }
 
+// ---------------- keyboard ----------------
+// iOS doesn't shrink the layout viewport for the keyboard; track the visual viewport instead so the
+// toolbar and the selection bar stay above it, and keep the window from being scrolled by Safari.
+if (window.visualViewport) {
+  const vv = window.visualViewport;
+  const onVV = () => {
+    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty('--kb', kb + 'px');
+    if (kb > 0 && window.scrollY) window.scrollTo(0, 0);
+  };
+  vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV);
+}
+
 // ---------------- PWA ----------------
 // On iOS Safari (not yet on the home screen) nudge once toward Add to Home Screen: that is what keeps
 // IndexedDB from being evicted after a week of non-use, and what makes the app full-screen/offline.
-const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 if (isIOS && !standalone && !localStorage.getItem('formfill.installHintDismissed')) $('#install-hint').hidden = false;
 $('#install-hint-close').addEventListener('click', () => { $('#install-hint').hidden = true; localStorage.setItem('formfill.installHintDismissed', '1'); });
 
@@ -345,4 +377,5 @@ if ('launchQueue' in window) {
   });
 }
 
-renderHome();
+store.onSaveError = () => toast('Could not save settings — this browser\'s storage is full or blocked.', 5000);
+store.init().then(renderHome);

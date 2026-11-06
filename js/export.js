@@ -2,7 +2,7 @@
 import { openPdfJs } from './loaders.js';
 
 const { PDFDocument, StandardFonts, rgb, degrees, PDFName, LineCapStyle,
-        PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList } = window.PDFLib;
+        PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, PDFSignature } = window.PDFLib;
 
 function hexToRgb(hex) {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '#111111');
@@ -11,8 +11,17 @@ function hexToRgb(hex) {
 }
 
 // Characters Helvetica (WinAnsi) can't encode become '?'.
+const WINANSI_EXTRA = '\u20ac\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u017d\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u017e\u0178';
+let replacedChars = 0;
+// Helvetica (WinAnsi) can't encode everything; unsupported characters become "?" and are counted.
 function winAnsiSafe(s) {
-  return (s || '').replace(/[^\u0000-ÿ‘’“”–—…€•™]/g, '?').replace(/\t/g, '    ');
+  let out = '';
+  for (const ch of (s || '').replace(/\t/g, '    ')) {
+    const c = ch.codePointAt(0);
+    if ((c >= 0x20 && c <= 0x7e) || (c >= 0xa0 && c <= 0xff) || c === 0x0a || c === 0x0d || WINANSI_EXTRA.includes(ch)) out += ch;
+    else { out += '?'; replacedChars++; }
+  }
+  return out;
 }
 
 function wrapLines(text, font, size, maxW) {
@@ -49,7 +58,25 @@ async function dataUrlToBytes(dataUrl) {
  * @param opts { flatten: boolean, fieldDefs: [...] }
  * @returns Uint8Array of the finished PDF
  */
+export const lastBuild = { warnings: [] };
 export async function buildPdf(doc, opts = {}) {
+  lastBuild.warnings = []; replacedChars = 0;
+  try {
+    return await build(doc, opts);
+  } catch (e) {
+    if (doc.kind === 'pdf' && opts.flatten !== false) {
+      console.warn('flatten build failed, retrying unflattened', e);
+      lastBuild.warnings.push('Could not flatten this form; fields were left fillable.');
+      replacedChars = 0;
+      return await build(doc, { ...opts, flatten: false });
+    }
+    throw e;
+  } finally {
+    if (replacedChars) lastBuild.warnings.push(`${replacedChars} character${replacedChars === 1 ? '' : 's'} not supported by the PDF font were replaced with "?".`);
+  }
+}
+
+async function build(doc, opts) {
   const flatten = opts.flatten !== false;
   let pdfDoc, mappers;
 
@@ -150,20 +177,33 @@ async function fillFields(pdfDoc, doc, fieldDefs, flatten) {
     } catch (e) { console.warn('field', name, e); }
   }
 
+  const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  try { form.updateFieldAppearances(helv); } catch (e) { console.warn('appearances', e); }
   if (flatten) {
-    try {
-      const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      try { form.updateFieldAppearances(helv); } catch (e) { console.warn('appearances', e); }
-      form.flatten();
-    } catch (e) {
-      console.warn('flatten failed, leaving fields live', e);
+    // pdf-lib can't flatten widgets it can't draw: signature fields, push buttons, and any widget
+    // without an appearance stream. Drop those first (their content is painted by the page anyway);
+    // then flatten. A failure here is thrown so the caller can rebuild an unflattened file instead
+    // of shipping a half-flattened one.
+    for (const f of form.getFields()) {
+      const drop = (f instanceof PDFSignature) ||
+        f.acroField.getWidgets().some(w => { try { return !w.getNormalAppearance(); } catch { return true; } });
+      if (drop) { try { dropFieldRaw(pdfDoc, form, f); } catch (e) { console.warn('dropField', f.getName(), e); } }
     }
-  } else {
-    try {
-      const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      form.updateFieldAppearances(helv);
-    } catch (e) { console.warn('appearances', e); }
+    form.flatten({ updateFieldAppearances: false });
   }
+}
+
+// pdf-lib's form.removeField() insists on an appearance stream; this removes the widgets from
+// their pages and the field from the AcroForm tree without touching appearances.
+function dropFieldRaw(pdfDoc, form, field) {
+  const ctx = pdfDoc.context;
+  const dicts = new Set(field.acroField.getWidgets().map(w => w.dict)); dicts.add(field.acroField.dict);
+  for (const page of pdfDoc.getPages()) {
+    const annots = page.node.Annots(); if (!annots) continue;
+    for (let i = annots.size() - 1; i >= 0; i--) { const d = ctx.lookup(annots.get(i)); if (dicts.has(d)) annots.remove(i); }
+  }
+  const parent = field.acroField.getParent();
+  if (parent) parent.removeField(field.acroField); else form.acroForm.removeField(field.acroField);
 }
 
 // For PDFs opened as images (encrypted/unwritable): paint the field values onto the page images.
@@ -259,12 +299,14 @@ async function drawAnnots(pdfDoc, doc, mappers) {
         if (prev) page.drawLine({ start: prev, end: cur, thickness: t, color, lineCap: LineCapStyle.Round });
         prev = cur;
       }
-    } else if (a.type === 'image' && a.dataUrl) {
-      let img = imgCache.get(a.dataUrl);
+    } else if (a.type === 'image') {
+      const src = a.dataUrl || (doc.images && doc.images[a.imgId]);
+      if (!src) continue;
+      let img = imgCache.get(src);
       if (!img) {
-        const bytes = await dataUrlToBytes(a.dataUrl);
-        img = a.dataUrl.startsWith('data:image/png') ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-        imgCache.set(a.dataUrl, img);
+        const bytes = await dataUrlToBytes(src);
+        img = src.startsWith('data:image/png') ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        imgCache.set(src, img);
       }
       const { x, y } = m.toPdf(a.x, a.y + a.h);
       page.drawImage(img, { x, y, width: a.w, height: a.h, rotate });

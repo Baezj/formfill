@@ -4,12 +4,12 @@ import { showSheet, hideSheet, setupTabs, selectTab, toast } from './ui.js';
 
 const $ = s => document.querySelector(s);
 const FONTS = [
-  ['"Great Vibes", "Snell Roundhand", "Apple Chancery", cursive', 'Great Vibes'],
-  ['"Dancing Script", "Savoye LET", "Brush Script MT", cursive', 'Dancing Script'],
-  ['"Homemade Apple", "Bradley Hand", "Noteworthy", cursive', 'Homemade Apple'],
-  ['"Caveat", "Marker Felt", "Segoe Print", cursive', 'Caveat'],
-  ['"Snell Roundhand", "Apple Chancery", "URW Chancery L", cursive', 'Snell Roundhand'],
-  ['"Zapfino", "Lucida Handwriting", cursive', 'Zapfino']
+  ['"Great Vibes", cursive', 'Great Vibes'],
+  ['"Allura", cursive', 'Allura'],
+  ['"Sacramento", cursive', 'Sacramento'],
+  ['"Dancing Script", cursive', 'Dancing Script'],
+  ['"Homemade Apple", cursive', 'Homemade Apple'],
+  ['"Caveat", cursive', 'Caveat']
 ];
 
 let pad = null, padColor = '#111111', typeFont = 0, uploadCanvas = null, resolver = null, currentKind = 'signature';
@@ -76,7 +76,7 @@ function removeWhite(canvas) {
 async function handleUpload(file) {
   const bmp = await createImageBitmap(file).catch(() => null);
   if (!bmp) { toast('Could not read that image'); return; }
-  const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const scale = Math.min(1, 1000 / Math.max(bmp.width, bmp.height));
   const c = document.createElement('canvas');
   c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
   c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
@@ -119,8 +119,11 @@ function wire() {
 
 function renderFontList() {
   const text = $('#sig-type-text').value || (store.profile.fullName || 'Your Name');
-  $('#sig-fonts').innerHTML = FONTS.map((f, i) =>
-    `<button data-f="${i}" class="${i === typeFont ? 'on' : ''}" style="font-family:${f[0].replace(/"/g, '&quot;')};color:${padColor}">${text.replace(/</g, '&lt;')}</button>`).join('');
+  const box = $('#sig-fonts'); box.innerHTML = '';
+  FONTS.forEach((f, i) => {
+    const b = document.createElement('button'); b.dataset.f = i; b.className = i === typeFont ? 'on' : '';
+    b.style.fontFamily = f[0]; b.style.color = padColor; b.textContent = text; box.appendChild(b);
+  });
 }
 
 async function save() {
@@ -141,15 +144,16 @@ async function save() {
     result = trimCanvas(c);
   }
   if (!result) { toast('Nothing to save'); return; }
-  const sig = store.addSignature({ kind: currentKind, ...result });
   const r = resolver; resolver = null;
   hideSheet();
+  const sig = await store.addSignature({ kind: currentKind, ...result });
   if (r) r(sig);
 }
 
 /** Opens the creator. Resolves with the saved signature, or null if cancelled. */
 export function createSignature(kind = 'signature') {
   wire();
+  if (resolver) { const r = resolver; resolver = null; r(null); }
   currentKind = kind;
   $('#sig-modal-title').textContent = kind === 'initials' ? 'New initials' : 'New signature';
   $('#sig-type-text').value = kind === 'initials' ? initialsOf(store.profile.fullName) : (store.profile.fullName || '');
@@ -174,19 +178,20 @@ export function renderSigGrid(el, kind, { manage = false, onPick } = {}) {
   el.innerHTML = sigs.map(s => `<div class="sig-item" data-id="${s.id}"><img src="${s.dataUrl}" alt=""><button class="del" data-del="${s.id}" aria-label="Delete">&times;</button></div>`).join('');
   el.onclick = e => {
     const del = e.target.closest('[data-del]');
-    if (del) { store.removeSignature(del.dataset.del); renderSigGrid(el, kind, { manage, onPick }); return; }
+    if (del) { store.removeSignature(del.dataset.del).then(() => renderSigGrid(el, kind, { manage, onPick })); return; }
     const item = e.target.closest('.sig-item');
     if (item && onPick) onPick(store.signatures.find(s => s.id === item.dataset.id));
   };
 }
 
 /** Picker sheet: resolves with a signature (saved or newly created), or null. */
-export function pickSignature(kind = 'signature') {
+export function pickSignature(kind = 'signature', opts = {}) {
   wire();
   const sheet = $('#sig-picker');
   $('#sig-picker-title').textContent = kind === 'initials' ? 'Choose initials' : 'Choose a signature';
   const sigs = store.sigsOf(kind);
   if (!sigs.length) return createSignature(kind);
+  if (sigs.length === 1 && !opts.choose) return Promise.resolve(sigs[0]);
   return new Promise(resolve => {
     let manage = false, done = false;
     const finish = v => { if (done) return; done = true; resolve(v); };

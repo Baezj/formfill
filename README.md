@@ -13,6 +13,13 @@ A personal, browser-only form filler. Open a PDF, a photo of a form, or a Word f
 - **Quick fill** — keep your name, address, phone, email, etc. in Settings and drop them onto any form with one tap; auto-fill matching PDF fields.
 - **Finish** — flatten and download, share (Save to Files / AirDrop / email on iOS), print, or open in a new tab. Undo/redo, pinch to zoom, multi-page, add blank or photo pages.
 
+## Notes
+
+- **iPhone/iPad:** add it to the Home Screen. Safari can clear a website's saved data after 7 days without a visit; home-screen apps are exempt. Share → Save to Files keeps a permanent copy of any finished PDF.
+- **"Secured" / password PDFs** are opened as page images (the detected fields still work); the result is a flat PDF.
+- **Word files** are rendered in the browser (mammoth + html2canvas); layout is approximate.
+- **Updating:** bump `VERSION` in `sw.js` whenever anything under `vendor/` changes, or installed copies keep serving the old pdf.js worker with a new main script.
+
 ## Run it
 
 It is plain static files: open `index.html` from any web server (GitHub Pages works as-is). No build step.

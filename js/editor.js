@@ -7,7 +7,6 @@ import { toast } from './ui.js';
 const $ = s => document.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const uid = () => 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-const MAX_CANVAS_PX = 14e6;
 const COLORS = ['#111111', '#1d3fbf', '#c0392b'];
 // Ink points are stored normalized to the annotation box so resizing just scales them.
 function inkPath(a) {
@@ -24,7 +23,7 @@ export class Editor {
     this.history = []; this.future = [];
     this.pageEls = []; this.bitmaps = new Map(); this.renderTasks = new Map();
     this.observer = new IntersectionObserver(entries => {
-      for (const en of entries) if (en.isIntersecting) this.renderPage(+en.target.dataset.i);
+      for (const en of entries) { const i = +en.target.dataset.i; if (en.isIntersecting) this.renderPage(i); else this.releasePage(i); }
     }, { root: this.wrap, rootMargin: '700px 0px' });
     this._wireGlobal();
   }
@@ -95,56 +94,85 @@ export class Editor {
     clearTimeout(this._rr);
     this._rr = setTimeout(() => this.rerenderVisible(), 160);
   }
+  // Render pages near the viewport at the current zoom; release the bitmaps of pages far away.
   rerenderVisible() {
     const wr = this.wrap.getBoundingClientRect();
     this.pageEls.forEach((el, i) => {
       const r = el.getBoundingClientRect();
-      if (r.bottom > wr.top - 700 && r.top < wr.bottom + 700) this.renderPage(i, true);
-      else el.dataset.scale = '';
+      if (r.bottom > wr.top - 700 && r.top < wr.bottom + 700) this.renderPage(i);
+      else this.releasePage(i);
     });
+  }
+  releasePage(i) {
+    const el = this.pageEls[i]; if (!el || !el.dataset.scale) return;
+    const t = this.renderTasks.get(i); if (t) { try { t.cancel(); } catch { /* ignore */ } this.renderTasks.delete(i); }
+    const c = el.querySelector('canvas'); c.width = 0; c.height = 0; el.dataset.scale = '';
   }
 
   // ---------------- page rendering ----------------
-  async renderPage(i, force = false) {
+  // Canvas memory is the scarce resource on phones: one shared offscreen canvas, capped pixel
+  // budgets, and off-screen pages are released (see rerenderVisible / the observer).
+  async renderPage(i) {
     const el = this.pageEls[i]; const pg = this.doc.pages[i];
     if (!el || !pg) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const touch = matchMedia('(pointer: coarse)').matches;
+    const dpr = Math.min(window.devicePixelRatio || 1, touch ? 2 : 3);
+    const maxPx = touch ? 6e6 : 14e6;
     let scale = this.zoom * dpr;
     const px = pg.w * pg.h * scale * scale;
-    if (px > MAX_CANVAS_PX) scale *= Math.sqrt(MAX_CANVAS_PX / px);
+    if (px > maxPx) scale *= Math.sqrt(maxPx / px);
     const key = scale.toFixed(3);
-    if (!force && el.dataset.scale === key) return;
-    if (el.dataset.scale === key && this.renderTasks.has(i)) return;
-    el.dataset.scale = key;
+    if (el.dataset.scale === key) return;
+    if (el.dataset.pending === key) return;
+    el.dataset.pending = key;
     const canvas = el.querySelector('canvas');
     const w = Math.round(pg.w * scale), h = Math.round(pg.h * scale);
-
-    if (this.doc.kind === 'pdf' && !pg.added) {
-      const prev = this.renderTasks.get(i); if (prev) { try { prev.cancel(); } catch { /* ignore */ } }
-      try {
+    let task = null;
+    try {
+      if (this.doc.kind === 'pdf' && !pg.added) {
+        const prev = this.renderTasks.get(i); if (prev) { try { prev.cancel(); } catch { /* ignore */ } }
         const page = await this.pdf.getPage(i + 1);
+        if (el.dataset.pending !== key) return;
         const vp = page.getViewport({ scale });
-        const off = document.createElement('canvas'); off.width = w; off.height = h;
-        const task = page.render({ canvasContext: off.getContext('2d'), viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE_FORMS });
-        this.renderTasks.set(i, task);
-        await task.promise;
-        this.renderTasks.delete(i);
+        // One PDF render at a time through the single shared offscreen canvas.
+        await Editor.renderLock(async () => {
+          if (el.dataset.pending !== key) return;
+          const off = Editor.offscreen(w, h);
+          task = page.render({ canvasContext: off.getContext('2d'), viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE_FORMS });
+          this.renderTasks.set(i, task);
+          try { await task.promise; } finally { if (this.renderTasks.get(i) === task) this.renderTasks.delete(i); }
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(off, 0, 0);
+          off.width = 0; off.height = 0;
+          el.dataset.scale = key;
+        });
+        return;
+      } else {
+        let bmp = pg.image ? this.bitmaps.get(i) : null;
+        if (pg.image && !bmp) { bmp = await createImageBitmap(pg.image); this.bitmaps.set(i, bmp); }
+        if (el.dataset.pending !== key) return;
         canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(off, 0, 0);
-      } catch (e) {
-        this.renderTasks.delete(i);
-        if (!(e && e.name === 'RenderingCancelledException')) console.warn('render', e);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+        if (bmp) ctx.drawImage(bmp, 0, 0, w, h);
       }
-    } else {
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
-      if (pg.image) {
-        let bmp = this.bitmaps.get(i);
-        if (!bmp) { bmp = await createImageBitmap(pg.image); this.bitmaps.set(i, bmp); }
-        ctx.drawImage(bmp, 0, 0, w, h);
-      }
+      el.dataset.scale = key;
+    } catch (e) {
+      if (task && this.renderTasks.get(i) === task) this.renderTasks.delete(i);
+      if (!(e && e.name === 'RenderingCancelledException')) console.warn('render', e);
+    } finally {
+      if (el.dataset.pending === key) el.dataset.pending = '';
     }
+  }
+  static renderLock(fn) {
+    const run = (Editor._chain || Promise.resolve()).then(fn, fn);
+    Editor._chain = run.catch(() => {});
+    return run;
+  }
+  static offscreen(w, h) {
+    if (!Editor._off) Editor._off = document.createElement('canvas');
+    Editor._off.width = w; Editor._off.height = h;
+    return Editor._off;
   }
 
   async thumbnail() {
@@ -157,8 +185,9 @@ export class Editor {
         const page = await this.pdf.getPage(1);
         await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale }) }).promise;
       } else if (pg.image) {
-        const bmp = this.bitmaps.get(0) || await createImageBitmap(pg.image);
+        const cached = this.bitmaps.get(0); const bmp = cached || await createImageBitmap(pg.image);
         ctx.drawImage(bmp, 0, 0, W, H);
+        if (!cached && bmp.close) bmp.close();
       }
     } catch (e) { console.warn('thumb', e); }
     return c.toDataURL('image/jpeg', 0.7);
@@ -179,6 +208,14 @@ export class Editor {
         const fs = f.multiLine ? 10 : clamp(f.h * 0.62, 7, 13);
         el.style.fontSize = `calc(var(--z) * ${fs.toFixed(1)}px)`;
         if (f.align === 1) el.style.textAlign = 'center'; else if (f.align === 2) el.style.textAlign = 'right';
+        if (f.comb && f.maxLen) {
+          // Space the characters into the comb cells (approximation of the PDF's comb layout).
+          const cell = f.w / f.maxLen, charW = fs * 0.6;
+          el.style.fontFamily = 'Menlo, Consolas, "Courier New", monospace';
+          el.style.letterSpacing = `calc(var(--z) * ${(cell - charW).toFixed(2)}px)`;
+          el.style.paddingLeft = `calc(var(--z) * ${((cell - charW) / 2).toFixed(2)}px)`;
+          el.style.textAlign = 'left';
+        }
         el.addEventListener('input', () => { vals[f.name] = el.value; this.onChange(); });
         if (f.multiLine) el.rows = 1;
       } else if (f.type === 'checkbox' || f.type === 'radio') {
@@ -229,9 +266,17 @@ export class Editor {
       el.style.left = `calc(var(--z) * ${f.x}px)`; el.style.top = `calc(var(--z) * ${f.y}px)`;
       el.style.width = `calc(var(--z) * ${f.w}px)`; el.style.height = `calc(var(--z) * ${f.h}px)`;
       el.addEventListener('pointerdown', e => e.stopPropagation());
+      // Tiny fields at fit-width are unreadable on a phone: zoom in around the field when it gets focus.
+      if (f.type === 'text' || f.type === 'combo' || f.type === 'list') el.addEventListener('focus', () => this.zoomToField(el, f));
       layer.appendChild(el);
     }
     this.syncSigFields();
+  }
+  zoomToField(el, f) {
+    if (f.h * this.zoom >= 22 || !matchMedia('(pointer: coarse)').matches) return;
+    const r = el.getBoundingClientRect();
+    this.setZoom(Math.min(2.2, 26 / f.h), { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    setTimeout(() => { try { el.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch { /* ignore */ } }, 50);
   }
   syncSigFields() {
     const signed = new Set((this.doc.annots || []).map(a => a.sigField).filter(Boolean));
@@ -241,7 +286,7 @@ export class Editor {
     const ar = sig.w / sig.h;
     let w = box.w - 4, h = w / ar;
     if (h > box.h - 2) { h = box.h - 2; w = h * ar; }
-    return { id: uid(), type: 'image', page: box.page, x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h, dataUrl: sig.dataUrl };
+    return { id: uid(), type: 'image', page: box.page, x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h, imgId: this.storeImage(sig.dataUrl) };
   }
 
   // Fill text fields by matching their names to the profile. Returns the count filled.
@@ -300,9 +345,9 @@ export class Editor {
     el.style.setProperty('--w', a.w); el.style.setProperty('--h', a.h);
     if (a.type === 'text') {
       el.style.setProperty('--fs', a.size || 12); el.style.setProperty('--c', a.color || '#111');
-      const t = el.querySelector('.txt'); if (t.textContent !== a.text) t.textContent = a.text || '';
+      const t = el.querySelector('.txt'); if (a.id !== this.editingId && t.textContent !== a.text) t.textContent = a.text || '';
     } else if (a.type === 'image') {
-      const img = el.querySelector('img'); if (img.getAttribute('src') !== a.dataUrl) img.src = a.dataUrl;
+      const src = this.imageSrc(a); const img = el.querySelector('img'); if (img.getAttribute('src') !== src) img.src = src;
     } else if (a.type === 'ink') {
       const svg = el.querySelector('svg'); svg.setAttribute('viewBox', `0 0 ${a.w} ${a.h}`);
       const p = el.querySelector('path');
@@ -314,6 +359,14 @@ export class Editor {
     }
   }
   getAnnot(id) { return this.doc.annots.find(a => a.id === id); }
+  imageSrc(a) { return a.dataUrl || (this.doc.images && this.doc.images[a.imgId]) || ''; }
+  // Image bytes live once in doc.images; annotations only reference them (keeps history/autosave small).
+  storeImage(dataUrl) {
+    if (!this.doc.images) this.doc.images = {};
+    for (const [k, v] of Object.entries(this.doc.images)) if (v === dataUrl) return k;
+    const id = 'i' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    this.doc.images[id] = dataUrl; return id;
+  }
   select(id) {
     if (this.selectedId && this.selectedId !== id) this.stopEditing();
     this.selectedId = id;
@@ -399,7 +452,7 @@ export class Editor {
       const sig = await pickSignature(kind);
       if (!sig) return;
       const w = Math.min(kind === 'initials' ? 46 : 150, pg.w - 10), h = w * sig.h / sig.w;
-      this.addAnnot({ ...base, type: 'image', x: clamp(x - w / 2, 0, pg.w - w), y: clamp(y - h / 2, 0, pg.h - h), w, h, dataUrl: sig.dataUrl });
+      this.addAnnot({ ...base, type: 'image', x: clamp(x - w / 2, 0, pg.w - w), y: clamp(y - h / 2, 0, pg.h - h), w, h, imgId: this.storeImage(sig.dataUrl) });
     } else if (tool === 'fill') {
       this.setTool(null);
       if (this.onQuickFill) this.onQuickFill(pageIdx, x, y);
@@ -420,7 +473,7 @@ export class Editor {
     c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
     const dataUrl = c.toDataURL(/png/i.test(file.type) ? 'image/png' : 'image/jpeg', 0.85);
     const pg = this.doc.pages[pageIdx]; const w = Math.min(200, pg.w - 10), h = w * c.height / c.width;
-    this.addAnnot({ id: uid(), page: pageIdx, type: 'image', x: clamp(x - w / 2, 0, pg.w - w), y: clamp(y - h / 2, 0, pg.h - h), w, h, dataUrl });
+    this.addAnnot({ id: uid(), page: pageIdx, type: 'image', x: clamp(x - w / 2, 0, pg.w - w), y: clamp(y - h / 2, 0, pg.h - h), w, h, imgId: this.storeImage(dataUrl) });
   }
 
   // ---------------- selection toolbar ----------------
@@ -472,13 +525,19 @@ export class Editor {
       down = { x: e.clientX, y: e.clientY, t: Date.now() };
     });
     el.addEventListener('pointerup', e => {
-      if (!down) return;
-      const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8; down = null;
+      if (!down || this.pinching) { down = null; return; }
+      const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8; const d = down; down = null;
       if (moved) return;
-      if (this.tool) {
-        const r = el.getBoundingClientRect();
-        this.placeAt(i, (e.clientX - r.left) / this.zoom, (e.clientY - r.top) / this.zoom);
-      } else this.deselect();
+      const r = el.getBoundingClientRect();
+      const px = (e.clientX - r.left) / this.zoom, py = (e.clientY - r.top) / this.zoom;
+      if (this.tool) { this.placeAt(i, px, py); return; }
+      // Double-tap on empty page = new text box (the most common action).
+      const last = this._lastTap;
+      if (last && d.t - last.t < 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 24) {
+        this._lastTap = null; this.tool = 'text'; this.placeAt(i, px, py); return;
+      }
+      this._lastTap = { t: d.t, x: e.clientX, y: e.clientY };
+      this.deselect();
     });
     el.addEventListener('pointercancel', () => { down = null; });
     // Text editing: input → autogrow + model update
@@ -587,22 +646,40 @@ export class Editor {
 
   _wireGlobal() {
     // Pinch zoom (touch) + ctrl/cmd wheel (desktop)
+    // Pinch: scale the page stack with a CSS transform while the fingers move (cheap), then commit
+    // one real zoom on release. While pinching, taps are ignored so a pinch never places a mark.
     let pinch = null;
+    this.pinching = false;
     this.wrap.addEventListener('touchstart', e => {
-      if (e.touches.length === 2) {
+      if (e.touches.length >= 2) {
         const [a, b] = e.touches;
-        pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z: this.zoom };
+        const r = this.wrap.getBoundingClientRect();
+        const mx = (a.clientX + b.clientX) / 2, my = (a.clientY + b.clientY) / 2;
+        pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z: this.zoom, f: 1, mx, my,
+          ox: this.wrap.scrollLeft + mx - r.left, oy: this.wrap.scrollTop + my - r.top };
+        this.pinching = true;
+        this.root.style.transformOrigin = `${pinch.ox}px ${pinch.oy}px`;
       }
     }, { passive: true });
     this.wrap.addEventListener('touchmove', e => {
-      if (e.touches.length === 2 && pinch) {
+      if (e.touches.length >= 2 && pinch) {
         e.preventDefault();
         const [a, b] = e.touches;
         const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-        this.setZoom(pinch.z * d / pinch.d, { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+        pinch.f = clamp(pinch.z * d / pinch.d, 0.25, 5) / pinch.z;
+        this.root.style.transform = `scale(${pinch.f})`;
       }
     }, { passive: false });
-    this.wrap.addEventListener('touchend', () => { if (pinch) { pinch = null; this.scheduleRerender(); } });
+    const endPinch = e => {
+      if (!pinch) return;
+      if (e.touches.length > 0) return;
+      const p = pinch; pinch = null;
+      this.root.style.transform = ''; this.root.style.transformOrigin = '';
+      this.setZoom(p.z * p.f, { x: p.mx, y: p.my });
+      setTimeout(() => { this.pinching = false; }, 80);
+    };
+    this.wrap.addEventListener('touchend', endPinch);
+    this.wrap.addEventListener('touchcancel', endPinch);
     this.wrap.addEventListener('wheel', e => {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
@@ -618,6 +695,7 @@ export class Editor {
       const typing = e.target.closest && (e.target.closest('.txt') || e.target.matches('input, textarea, select'));
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 'z') { if (typing && this.editingId) return; e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
+      if (e.key === 'Escape' && this.editingId) { e.preventDefault(); this.stopEditing(); return; }
       if (typing) return;
       if (!this.selectedId) return;
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); this.deleteAnnot(this.selectedId); }

@@ -1,9 +1,12 @@
 // Service worker: caches the app shell so FormFill works offline once visited.
-const VERSION = 'formfill-v1';
+// Bump VERSION on every deploy that touches vendor/ (pdf.js main + worker must match).
+const VERSION = 'formfill-v2';
 const SHELL = [
   './', './index.html', './css/app.css', './manifest.webmanifest',
   './js/app.js', './js/db.js', './js/editor.js', './js/export.js', './js/loaders.js', './js/signature.js', './js/store.js', './js/ui.js',
   './vendor/pdf-lib.min.js', './vendor/signature_pad.umd.min.js', './vendor/pdf.min.mjs', './vendor/pdf.worker.min.mjs',
+  './vendor/mammoth.browser.min.js', './vendor/html2canvas.min.js',
+  './vendor/fonts/GreatVibes-Regular.woff2', './vendor/fonts/Allura-Regular.woff2', './vendor/fonts/Sacramento-Regular.woff2', './vendor/fonts/DancingScript.woff2', './vendor/fonts/HomemadeApple-Regular.woff2', './vendor/fonts/Caveat.woff2',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'
 ];
 
@@ -17,11 +20,9 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  const sameOrigin = url.origin === location.origin;
-  const isFont = /fonts\.(googleapis|gstatic)\.com$/.test(url.hostname);
-  if (!sameOrigin && !isFont) return;
-  // Network first for the shell (so updates land), cache first for vendor assets and fonts.
-  const cacheFirst = isFont || url.pathname.includes('/vendor/');
+  if (url.origin !== location.origin) return;
+  // Network first for the shell (so updates land), cache first for vendor assets.
+  const cacheFirst = url.pathname.includes('/vendor/');
   e.respondWith((async () => {
     const cache = await caches.open(VERSION);
     if (cacheFirst) {

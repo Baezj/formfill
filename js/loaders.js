@@ -42,6 +42,7 @@ export async function loadPdfFile(file, askPassword) {
       } else throw e;
     }
   }
+  if (!pdf) throw new Error('Could not unlock this PDF');
   // pdf-lib must be able to load the file to write it back later. Encrypted ("secured") PDFs and
   // some damaged files can't be, so those are opened as page images instead, with the detected
   // form fields drawn onto the images at export time.
@@ -52,7 +53,6 @@ export async function loadPdfFile(file, askPassword) {
 
   const doc = baseDoc(stripExt(file.name), 'pdf');
   doc.source = bytes.buffer;
-  doc.password = password || null;
   const n = pdf.numPages;
   for (let i = 1; i <= n; i++) {
     const page = await pdf.getPage(i);
@@ -184,17 +184,20 @@ export async function loadDocxFile(file) {
   </style><div class="docx">${res.value}</div>`;
   document.body.appendChild(host);
   await new Promise(r => setTimeout(r, 50));
-  const canvas = await window.html2canvas(host, { scale: 2, backgroundColor: '#fff', useCORS: true, logging: false });
+  // Keep the single flow canvas under the browser's size limit (Safari ≈ 16M px): long documents
+  // are rendered at a lower scale rather than coming back blank.
+  const totalPx = host.scrollHeight, scale = Math.min(2, Math.sqrt(12e6 / (PAGE_W * Math.max(totalPx, PAGE_H))));
+  const canvas = await window.html2canvas(host, { scale, backgroundColor: '#fff', useCORS: true, logging: false });
   host.remove();
 
   const doc = baseDoc(stripExt(file.name), 'image');
-  const sliceH = PAGE_H * 2, totalH = canvas.height, srcCtx = canvas.getContext('2d');
+  const sliceH = Math.round(PAGE_H * scale), totalH = canvas.height, srcCtx = canvas.getContext('2d');
   // Prefer cutting on a blank row so lines of text aren't sliced in half.
   const isBlankRow = y => { const d = srcCtx.getImageData(0, y, canvas.width, 1).data; for (let i = 0; i < d.length; i += 4) if (d[i] < 245 || d[i + 1] < 245 || d[i + 2] < 245) return false; return true; };
   let y = 0;
   while (y < totalH && doc.pages.length < 60) {
     let end = Math.min(y + sliceH, totalH);
-    if (end < totalH) { for (let r = end; r > end - 260; r--) if (isBlankRow(r)) { end = r; break; } }
+    if (end < totalH) { for (let r = end; r > end - Math.round(130 * scale); r--) if (isBlankRow(r)) { end = r; break; } }
     const c = document.createElement('canvas');
     c.width = canvas.width; c.height = sliceH;
     const ctx = c.getContext('2d');

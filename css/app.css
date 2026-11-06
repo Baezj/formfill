@@ -1,3 +1,10 @@
+/* Script fonts for typed signatures (self-hosted: nothing is fetched from third parties). */
+@font-face { font-family: "Great Vibes"; src: url("../vendor/fonts/GreatVibes-Regular.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Dancing Script"; src: url("../vendor/fonts/DancingScript.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Homemade Apple"; src: url("../vendor/fonts/HomemadeApple-Regular.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Caveat"; src: url("../vendor/fonts/Caveat.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Sacramento"; src: url("../vendor/fonts/Sacramento-Regular.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Allura"; src: url("../vendor/fonts/Allura-Regular.woff2") format("woff2"); font-display: swap; }
 :root {
   --ink: #17181c;
   --ink-2: #4a4d57;
@@ -17,6 +24,7 @@
   --field-bg: #ffffff;
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
+  --kb: 0px;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -193,7 +201,7 @@ textarea.fld { overflow: hidden; }
 
 /* selection toolbar */
 .sel-bar {
-  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--sab) + 86px);
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--sab) + 86px + var(--kb));
   background: var(--inv-bg); color: var(--inv-fg); border-radius: 12px; display: flex; gap: 2px; padding: 4px; z-index: 6;
   box-shadow: var(--shadow);
 }
@@ -207,7 +215,7 @@ textarea.fld { overflow: hidden; }
 
 /* bottom toolbar */
 .toolbar {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+  position: absolute; left: 0; right: 0; bottom: var(--kb); z-index: 5;
   display: flex; align-items: stretch; gap: 2px; padding: 6px 8px calc(var(--sab) + 6px);
   background: var(--surface); border-top: 1px solid var(--line); overflow-x: auto; scrollbar-width: none;
 }
@@ -227,7 +235,7 @@ textarea.fld { overflow: hidden; }
 .sheet {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--surface);
   border-radius: 18px 18px 0 0; padding: 10px 18px calc(var(--sab) + 18px); box-shadow: var(--shadow);
-  max-height: 80vh; overflow: auto; animation: up .18s ease-out;
+  max-height: 80vh; max-height: 80dvh; overflow: auto; animation: up .18s ease-out;
 }
 @keyframes up { from { transform: translateY(30px); opacity: .6; } to { transform: none; opacity: 1; } }
 .sheet-head, .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -236,7 +244,7 @@ textarea.fld { overflow: hidden; }
 .modal {
   position: fixed; z-index: 21; background: var(--surface); border-radius: 18px; box-shadow: var(--shadow);
   left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100vw - 20px));
-  max-height: calc(100vh - 40px - var(--sat) - var(--sab)); overflow: auto; padding: 14px 18px 18px;
+  max-height: calc(100vh - 40px - var(--sat) - var(--sab)); max-height: calc(100dvh - 40px - var(--sat) - var(--sab)); overflow: auto; padding: 14px 18px 18px;
 }
 .tabs { display: flex; gap: 4px; background: var(--paper); border-radius: 10px; padding: 4px; margin-bottom: 12px; }
 .tabs button { flex: 1; border: 0; background: transparent; border-radius: 8px; padding: 8px; font-weight: 600; font-size: 14px; color: var(--ink-2); }
@@ -275,6 +283,8 @@ textarea.fld { overflow: hidden; }
 .chips button span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .export-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.share-only .export-grid { grid-template-columns: 1fr; }
+.share-only .btn.big { min-height: 96px; font-size: 16px; }
 .menu { display: flex; flex-direction: column; }
 .menu button { text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 14px 4px; font-size: 15px; }
 .menu button:last-child { border-bottom: 0; }
@@ -302,6 +312,10 @@ textarea.fld { overflow: hidden; }
   .tool { flex: 0 0 64px; }
   .sheet { left: 50%; right: auto; transform: translateX(-50%); width: min(520px, 100vw); bottom: 16px; border-radius: 18px; }
   .sel-bar { bottom: 96px; }
+}
+@media (pointer: coarse) {
+  /* Pinch replaces the zoom buttons on touch screens. */
+  #zoom-in, #zoom-out, #zoom-fit, .tb-sep { display: none; }
 }
 @media (hover: hover) {
   .annot:hover { outline-color: rgba(47,91,255,.5); }
