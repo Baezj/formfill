@@ -118,6 +118,10 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .pg-fields > * { pointer-events: auto; }
 #editor.tool-active .pg-fields { visibility: visible; }
 #editor.tool-active .pg-fields > * { pointer-events: none; }
+#editor.tool-draw #pages-wrap { touch-action: none; }
+#editor.tool-draw .page { cursor: crosshair; }
+#editor.tool-draw .annot { pointer-events: none; }
+.annot.mark svg { width: 100%; height: 100%; display: block; overflow: visible; }
 
 /* native form fields */
 .fld {

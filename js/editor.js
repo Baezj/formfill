@@ -9,6 +9,10 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const uid = () => 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const MAX_CANVAS_PX = 14e6;
 const COLORS = ['#111111', '#1d3fbf', '#c0392b'];
+// Ink points are stored normalized to the annotation box so resizing just scales them.
+function inkPath(a) {
+  return a.points.map((p, i) => (i ? 'L' : 'M') + (p[0] * a.w).toFixed(1) + ' ' + (p[1] * a.h).toFixed(1)).join(' ');
+}
 
 export class Editor {
   constructor({ onChange }) {
@@ -285,6 +289,7 @@ export class Editor {
       el = document.createElement('div'); el.dataset.id = a.id;
       el.innerHTML = (a.type === 'text' ? `<div class="txt" contenteditable="false" spellcheck="false"></div>` :
         a.type === 'image' ? `<img draggable="false" alt="">` :
+        a.type === 'ink' ? `<svg preserveAspectRatio="none"><path fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>` :
         `<svg viewBox="0 0 24 24"><path fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`) +
         `<div class="h-del" title="Delete">&times;</div><div class="h-rs" title="Resize"></div>`;
       layer.appendChild(el);
@@ -298,6 +303,10 @@ export class Editor {
       const t = el.querySelector('.txt'); if (t.textContent !== a.text) t.textContent = a.text || '';
     } else if (a.type === 'image') {
       const img = el.querySelector('img'); if (img.getAttribute('src') !== a.dataUrl) img.src = a.dataUrl;
+    } else if (a.type === 'ink') {
+      const svg = el.querySelector('svg'); svg.setAttribute('viewBox', `0 0 ${a.w} ${a.h}`);
+      const p = el.querySelector('path');
+      p.setAttribute('d', inkPath(a)); p.setAttribute('stroke', a.color || '#111'); p.setAttribute('stroke-width', a.width || 2);
     } else {
       const p = el.querySelector('path');
       p.setAttribute('d', a.type === 'check' ? 'M3 13.2l6.7 6.5L21.6 4.3' : 'M3.6 3.6l16.8 16.8M20.4 3.6L3.6 20.4');
@@ -326,7 +335,11 @@ export class Editor {
     const a = this.getAnnot(id); const el = this.annotEl(id);
     if (el) { el.classList.remove('editing'); const t = el.querySelector('.txt'); t.contentEditable = 'false'; t.blur(); }
     if (!a) return;
-    if (!a.text || !a.text.trim()) { this.doc.annots = this.doc.annots.filter(x => x.id !== id); if (el) el.remove(); if (this.selectedId === id) this.select(null); this.onChange(); }
+    if (!a.text || !a.text.trim()) {
+      this.doc.annots = this.doc.annots.filter(x => x.id !== id); if (el) el.remove(); if (this.selectedId === id) this.select(null);
+      if (this._justAdded === id && this.history.length) { this.history.pop(); this.updateUndoButtons(); } // nothing to undo
+      this.onChange();
+    }
     else if (a.text !== this._editStart) { this.history.push(JSON.stringify(this.doc.annots.map(x => x.id === id ? { ...x, text: this._editStart } : x))); this.future = []; this.trimHistory(); this.updateUndoButtons(); this.onChange(); }
   }
   annotEl(id) { return this.root.querySelector(`.annot[data-id="${id}"]`); }
@@ -336,6 +349,7 @@ export class Editor {
     this.doc.annots.push(a);
     this.renderAnnot(a);
     if (select) this.select(a.id);
+    this._justAdded = edit ? a.id : null;
     if (edit) this.startEditing(a.id);
     this.onChange();
     return a;
@@ -363,6 +377,7 @@ export class Editor {
     this.tool = this.tool === t ? null : t;
     for (const b of document.querySelectorAll('#toolbar .tool[data-tool]')) b.classList.toggle('on', b.dataset.tool === this.tool);
     $('#editor').classList.toggle('tool-active', !!this.tool);
+    $('#editor').classList.toggle('tool-draw', this.tool === 'draw');
     if (this.tool) this.deselect();
     return this.tool;
   }
@@ -425,6 +440,7 @@ export class Editor {
     if (act === 'smaller' || act === 'bigger') {
       const d = act === 'bigger' ? 1 : -1;
       if (a.type === 'text') { a.size = clamp((a.size || 12) + d, 6, 72); a.h = Math.max(a.h, a.size * 1.2 + 4); }
+      else if (a.type === 'ink') { const f = d > 0 ? 1.15 : 1 / 1.15; a.w *= f; a.h *= f; a.width = (a.width || 2) * f; }
       else { const s = clamp(a.w + d * 3, 6, 80); a.w = s; a.h = s; }
     } else if (act === 'bold') a.bold = !a.bold;
     else if (act === 'color') { a.color = COLORS[(COLORS.indexOf(a.color || '#111111') + 1) % COLORS.length]; }
@@ -452,6 +468,7 @@ export class Editor {
         this._startDrag(e, annotEl.dataset.id);
         return;
       }
+      if (this.tool === 'draw') { e.preventDefault(); this._startInk(e, el, i); return; }
       down = { x: e.clientX, y: e.clientY, t: Date.now() };
     });
     el.addEventListener('pointerup', e => {
@@ -483,6 +500,45 @@ export class Editor {
     });
   }
 
+  _startInk(e, pageEl, pageIdx) {
+    const r = pageEl.getBoundingClientRect(); const z = this.zoom; const pg = this.doc.pages[pageIdx];
+    const pts = [[(e.clientX - r.left) / z, (e.clientY - r.top) / z]];
+    const layer = pageEl.querySelector('.pg-annots');
+    const live = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    live.setAttribute('class', 'ink-live'); live.setAttribute('viewBox', `0 0 ${pg.w} ${pg.h}`);
+    live.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible';
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const color = store.prefs.color, width = store.prefs.inkWidth || 2;
+    path.setAttribute('fill', 'none'); path.setAttribute('stroke', color); path.setAttribute('stroke-width', width);
+    path.setAttribute('stroke-linecap', 'round'); path.setAttribute('stroke-linejoin', 'round');
+    live.appendChild(path); layer.appendChild(live);
+    const draw = () => { path.setAttribute('d', pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')); };
+    draw();
+    pageEl.setPointerCapture(e.pointerId);
+    const move = ev => {
+      const evs = ev.getCoalescedEvents ? ev.getCoalescedEvents() : [ev];
+      for (const c of evs) {
+        const x = clamp((c.clientX - r.left) / z, 0, pg.w), y = clamp((c.clientY - r.top) / z, 0, pg.h);
+        const last = pts[pts.length - 1];
+        if (Math.hypot(x - last[0], y - last[1]) > 0.7) pts.push([x, y]);
+      }
+      draw();
+    };
+    const up = () => {
+      pageEl.removeEventListener('pointermove', move); pageEl.removeEventListener('pointerup', up); pageEl.removeEventListener('pointercancel', up);
+      try { pageEl.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      live.remove();
+      if (pts.length < 2) pts.push([pts[0][0] + 0.5, pts[0][1] + 0.5]); // a dot
+      const pad = width;
+      const minX = Math.min(...pts.map(p => p[0])) - pad, maxX = Math.max(...pts.map(p => p[0])) + pad;
+      const minY = Math.min(...pts.map(p => p[1])) - pad, maxY = Math.max(...pts.map(p => p[1])) + pad;
+      const w = Math.max(2, maxX - minX), h = Math.max(2, maxY - minY);
+      const points = pts.map(p => [+((p[0] - minX) / w).toFixed(4), +((p[1] - minY) / h).toFixed(4)]);
+      this.addAnnot({ id: uid(), page: pageIdx, type: 'ink', x: minX, y: minY, w, h, points, color, width }, { select: false });
+    };
+    pageEl.addEventListener('pointermove', move); pageEl.addEventListener('pointerup', up); pageEl.addEventListener('pointercancel', up);
+  }
+
   _startDrag(e, id) {
     const a = this.getAnnot(id); if (!a) return;
     const el = this.annotEl(id); const pg = this.doc.pages[a.page];
@@ -509,7 +565,7 @@ export class Editor {
   _startResize(e, id) {
     const a = this.getAnnot(id); if (!a) return;
     const el = this.annotEl(id); const pg = this.doc.pages[a.page]; const handle = el.querySelector('.h-rs');
-    const sx = e.clientX, sy = e.clientY, ow = a.w, oh = a.h, os = a.size || 12; const ar = ow / oh;
+    const sx = e.clientX, sy = e.clientY, ow = a.w, oh = a.h, os = a.size || 12, oInk = a.width || 2; const ar = ow / oh;
     const snapshot = JSON.stringify(this.doc.annots); let moved = false;
     this.select(id);
     handle.setPointerCapture(e.pointerId);
@@ -517,14 +573,14 @@ export class Editor {
       moved = true;
       const dx = (ev.clientX - sx) / this.zoom, dy = (ev.clientY - sy) / this.zoom;
       if (a.type === 'text') { a.w = clamp(ow + dx, 30, pg.w - a.x); a.h = clamp(oh + dy, (a.size || 12) * 1.2 + 4, pg.h - a.y); }
-      else if (a.type === 'image') { a.w = clamp(ow + dx, 12, pg.w - a.x); a.h = a.w / ar; }
+      else if (a.type === 'image' || a.type === 'ink') { a.w = clamp(ow + dx, 6, pg.w - a.x); a.h = a.w / ar; if (a.type === 'ink') a.width = (a.width || 2) * (a.w / ow); }
       else { const s = clamp(ow + Math.max(dx, dy), 6, 120); a.w = s; a.h = s; }
       el.style.setProperty('--w', a.w); el.style.setProperty('--h', a.h);
     };
     const up = () => {
       handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); handle.removeEventListener('pointercancel', up);
       try { handle.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-      if (moved) { this.history.push(snapshot); this.future = []; this.trimHistory(); this.updateUndoButtons(); if (a.type === 'text') { a.size = os; this.autogrow(a); } this.onChange(); }
+      if (moved) { this.history.push(snapshot); this.future = []; this.trimHistory(); this.updateUndoButtons(); if (a.type === 'text') { a.size = os; this.autogrow(a); } if (a.type === 'ink') a.width = oInk * (a.w / ow); this.onChange(); }
     };
     handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up); handle.addEventListener('pointercancel', up);
   }

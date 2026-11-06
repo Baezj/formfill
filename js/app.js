@@ -163,7 +163,7 @@ $('#toolbar').addEventListener('click', e => {
   else if (b.id === 'zoom-fit') editor.fitWidth();
 });
 function hintFor(t) {
-  const m = { text: 'Tap where the text should go', check: 'Tap to place check marks', cross: 'Tap to place an X', date: 'Tap where today\'s date goes', sign: 'Tap where to sign', initials: 'Tap where to initial', fill: 'Tap where to drop a detail', image: 'Tap where the image goes' };
+  const m = { text: 'Tap where the text should go', check: 'Tap to place check marks', cross: 'Tap to place an X', date: 'Tap where today\'s date goes', sign: 'Tap where to sign', initials: 'Tap where to initial', fill: 'Tap where to drop a detail', image: 'Tap where the image goes', draw: 'Draw with your finger or pen. Tap Draw again to stop.' };
   toast(m[t] || '', 1600);
 }
 

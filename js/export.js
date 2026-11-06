@@ -207,6 +207,14 @@ async function drawAnnots(pdfDoc, doc, mappers) {
         if (prev) page.drawLine({ start: prev, end: cur, thickness: t, color, lineCap: LineCapStyle.Round });
         prev = cur;
       }
+    } else if (a.type === 'ink' && a.points && a.points.length > 1) {
+      const color = hexToRgb(a.color); const t = a.width || 2;
+      let prev = null;
+      for (const p of a.points) {
+        const cur = m.toPdf(a.x + p[0] * a.w, a.y + p[1] * a.h);
+        if (prev) page.drawLine({ start: prev, end: cur, thickness: t, color, lineCap: LineCapStyle.Round });
+        prev = cur;
+      }
     } else if (a.type === 'image' && a.dataUrl) {
       let img = imgCache.get(a.dataUrl);
       if (!img) {
