@@ -93,7 +93,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .home-body { flex: 1; overflow: auto; padding: 4px 18px calc(var(--sab) + 30px); -webkit-overflow-scrolling: touch; }
 .dropzone { border-radius: 20px; padding: 6px 0 2px; transition: background .15s; }
 .dropzone.over { background: var(--accent-2); outline: 2px dashed var(--accent); }
-.open-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.open-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .open-btn {
   border: 1px solid var(--line); background: var(--surface); border-radius: 16px;
   padding: 18px 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
@@ -305,7 +305,7 @@ textarea.fld { overflow: hidden; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (min-width: 700px) {
-  .open-grid { grid-template-columns: 2fr 1fr 1fr; }
+  .open-grid { grid-template-columns: 2.4fr 1fr 1fr 1fr; }
   .open-btn.primary { grid-column: auto; }
   .home-body { padding: 10px 32px 40px; max-width: 1100px; margin: 0 auto; width: 100%; }
   .toolbar { left: 50%; right: auto; transform: translateX(-50%); bottom: 14px; border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px; }
@@ -366,3 +366,7 @@ textarea.fld { overflow: hidden; }
 .card .badge { position: absolute; top: 8px; left: 8px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: #1f9d55; color: #fff; letter-spacing: .02em; }
 .card .kind { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--paper); font-size: 10px; font-weight: 700; color: var(--ink-3); margin-right: 6px; text-transform: uppercase; letter-spacing: .04em; }
 #sel-bar:not([hidden]) ~ #next-field { display: none; }
+
+.paste-zone { min-height: 110px; border: 2px dashed var(--accent); border-radius: 14px; background: var(--accent-2); outline: none; padding: 16px; font-size: 15px; color: var(--ink-2); caret-color: var(--accent); -webkit-user-select: text; user-select: text; }
+.paste-zone:empty::before { content: "Tap here, then Paste"; color: var(--ink-3); }
+.paste-zone:focus { box-shadow: 0 0 0 3px rgba(47,91,255,.25); }

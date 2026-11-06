@@ -39,16 +39,20 @@
           <span>Open a file</span>
           <small>PDF · photo · Word</small>
         </button>
+        <button class="open-btn" id="btn-paste">
+          <svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 5V3h6v2M9 12h6M9 16h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span>Paste</span>
+        </button>
         <button class="open-btn" id="btn-camera">
           <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <span>Scan with camera</span>
+          <span>Camera</span>
         </button>
         <button class="open-btn" id="btn-blank">
           <svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 10v8M8 14h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <span>Blank page</span>
+          <span>Blank</span>
         </button>
       </div>
-      <p class="hint">Drop a file anywhere, or paste an image. Everything stays on this device.</p>
+      <p class="hint">Drop a file anywhere, or copy a PDF and tap Paste. Everything stays on this device.</p>
     </div>
     <div id="setup-hint" class="install-hint setup-hint" hidden>
       <div><b>Set up once:</b> add your details and a signature, and every form after that is a few taps.</div>
@@ -219,6 +223,13 @@
     <button data-more="clear">Clear all my marks</button>
     <button data-more="delete" class="danger">Delete document</button>
   </div>
+</div>
+
+<!-- Paste target (for browsers that only hand over files through a paste gesture) -->
+<div id="paste-sheet" class="sheet" hidden>
+  <div class="sheet-head"><h3>Paste a form</h3><button class="icon-btn" data-close>&times;</button></div>
+  <div id="paste-zone" class="paste-zone" contenteditable="true" spellcheck="false" autocapitalize="off" aria-label="Paste here"></div>
+  <p class="muted small" id="paste-hint">Copy a PDF or a photo first (in Files, Mail, Photos…), then tap the box above and choose <b>Paste</b>.</p>
 </div>
 
 <!-- Recent-document menu -->

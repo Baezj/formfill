@@ -76,9 +76,55 @@ document.addEventListener('drop', e => {
   if ($('#editor').hidden) handleFiles(files);
   else if (state.doc && files.every(f => classify(f) === 'image')) addPhotoPages(files);
 });
+// ---------------- paste ----------------
+const PASTE_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/heic', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+function pastedName(type) {
+  const ext = type === 'application/pdf' ? 'pdf' : type.includes('wordprocessingml') ? 'docx' : (type.split('/')[1] || 'png');
+  return `Pasted ${formatDate()}.${ext}`;
+}
+function filesFromClipboardData(cd) {
+  const out = [];
+  for (const f of cd?.files || []) if (classify(f) !== 'unknown') out.push(f.name ? f : new File([f], pastedName(f.type), { type: f.type }));
+  if (!out.length) for (const it of cd?.items || []) {
+    if (it.kind !== 'file') continue;
+    const f = it.getAsFile(); if (f && classify(f) !== 'unknown') out.push(f.name ? f : new File([f], pastedName(f.type), { type: f.type }));
+  }
+  return out;
+}
+async function pasteFromClipboard() {
+  // 1) Async clipboard API (Chrome/Edge/Android: files copied from Finder/Explorer/Files show up here).
+  if (navigator.clipboard && navigator.clipboard.read) {
+    try {
+      const items = await navigator.clipboard.read();
+      const files = [];
+      for (const it of items) {
+        const type = it.types.find(t => PASTE_TYPES.includes(t) || t.startsWith('image/'));
+        if (!type) continue;
+        const blob = await it.getType(type);
+        files.push(new File([blob], pastedName(type), { type }));
+      }
+      if (files.length) { handleFiles(files); return; }
+    } catch (e) { console.info('clipboard.read unavailable:', e && e.message); }
+  }
+  // 2) Paste gesture into a box (Safari/iOS only hand files over this way, if at all).
+  $('#paste-zone').textContent = '';
+  showSheet($('#paste-sheet'));
+  setTimeout(() => $('#paste-zone').focus(), 50);
+}
+$('#btn-paste').addEventListener('click', pasteFromClipboard);
+$('#paste-zone').addEventListener('paste', e => {
+  e.preventDefault();
+  const files = filesFromClipboardData(e.clipboardData);
+  if (files.length) { hideSheet(); handleFiles(files); return; }
+  const text = (e.clipboardData?.getData('text/plain') || '').trim();
+  $('#paste-zone').textContent = '';
+  toast(text ? 'That pasted as text, not a file. Use "Open a file" and pick it from Files.' : 'Nothing to paste. Copy a PDF or photo first, then try again.', 4500);
+});
+$('#paste-zone').addEventListener('input', () => { $('#paste-zone').textContent = ''; });
 document.addEventListener('paste', e => {
-  const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
-  if (files.length && $('#editor').hidden) handleFiles(files);
+  if (!$('#paste-sheet').hidden || !$('#editor').hidden || (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable]'))) return;
+  const files = filesFromClipboardData(e.clipboardData);
+  if (files.length) { e.preventDefault(); handleFiles(files); }
 });
 
 async function handleFiles(files) {
