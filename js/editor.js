@@ -183,8 +183,11 @@ export class Editor {
         if (f.type === 'radio') el.name = 'r_' + f.name;
         el.checked = cur === true || cur === f.exportValue;
         el.addEventListener('change', () => {
-          if (f.type === 'radio') vals[f.name] = f.exportValue;
-          else {
+          if (f.type === 'radio') {
+            vals[f.name] = f.exportValue;
+            // Radios in the same group that share an on-state turn on together (as in Acrobat).
+            for (const o of this.root.querySelectorAll(`input[type=radio].fld[data-name="${CSS.escape(f.name)}"]`)) o.checked = o.dataset.export === f.exportValue;
+          } else {
             vals[f.name] = el.checked ? f.exportValue : false;
             // Siblings sharing the name: same export value stays in sync, different ones go off.
             for (const o of this.root.querySelectorAll(`input[type=checkbox].fld[data-name="${CSS.escape(f.name)}"]`)) {

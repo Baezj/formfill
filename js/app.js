@@ -217,55 +217,68 @@ async function addPhotoPages(files) {
 }
 
 // ---------------- export ----------------
+// The PDF is built as soon as the sheet opens, so the Share / Print / Open buttons can act
+// synchronously inside the tap (Safari drops the user gesture after an async wait).
+const exp = { token: 0, result: null };
+function exportName() { return (state.doc.name.replace(/[\\/:*?"<>|]+/g, '-') || 'document') + '.pdf'; }
+async function prepareExport() {
+  const token = ++exp.token; exp.result = null;
+  const btns = $('#export-sheet').querySelectorAll('button[data-export]');
+  btns.forEach(b => { b.disabled = true; });
+  $('#export-note').textContent = 'Preparing your PDF…';
+  try {
+    await save(true);
+    const bytes = await buildPdf(state.doc, { flatten: $('#opt-flatten').checked, fieldDefs: state.fieldDefs });
+    if (token !== exp.token) return;
+    const name = exportName();
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    exp.result = { blob, file: new File([blob], name, { type: 'application/pdf' }), name, url: URL.createObjectURL(blob) };
+    btns.forEach(b => { b.disabled = false; });
+    const kb = Math.round(blob.size / 1024);
+    $('#export-note').textContent = `Ready · ${kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB'}` + (isIOS ? ' · "Share" can save to Files, AirDrop, email or print.' : '');
+  } catch (err) {
+    console.error(err);
+    if (token === exp.token) $('#export-note').textContent = 'Could not build the PDF: ' + (err.message || err);
+  }
+}
 $('#btn-export').addEventListener('click', () => {
   editor.deselect();
   $('#opt-flatten').checked = store.prefs.flatten;
   $('#opt-flatten').closest('label').hidden = state.doc.kind !== 'pdf' || !state.fieldDefs.length;
   $('#export-sheet [data-export="share"]').hidden = !(navigator.share && navigator.canShare);
-  $('#export-note').textContent = isIOS ? 'On iPhone/iPad, "Share" lets you save to Files, AirDrop, email or print.' : '';
-  showSheet($('#export-sheet'));
+  showSheet($('#export-sheet'), { onClose: () => { exp.token++; } });
+  prepareExport();
 });
-$('#export-sheet').addEventListener('click', async e => {
-  const b = e.target.closest('button[data-export]'); if (!b) return;
-  const how = b.dataset.export;
-  hideSheet();
-  busy('Building PDF…');
+$('#opt-flatten').addEventListener('change', () => { if (!$('#export-sheet').hidden) prepareExport(); });
+$('#export-sheet').addEventListener('click', e => {
+  const b = e.target.closest('button[data-export]'); if (!b || !exp.result) return;
+  const how = b.dataset.export; const { blob, file, name, url } = exp.result;
   try {
-    await save(true);
-    const bytes = await buildPdf(state.doc, { flatten: $('#opt-flatten').checked, fieldDefs: state.fieldDefs });
-    const name = (state.doc.name.replace(/[\\/:*?"<>|]+/g, '-') || 'document') + '.pdf';
-    const blob = new Blob([bytes], { type: 'application/pdf' });
-    const file = new File([blob], name, { type: 'application/pdf' });
-    busy(false);
     if (how === 'share' && navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: name }); } catch (err) { if (err.name !== 'AbortError') throw err; }
+      navigator.share({ files: [file], title: name }).catch(err => { if (err.name !== 'AbortError') { console.warn(err); downloadBlob(url, name); } });
     } else if (how === 'download' || how === 'share') {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      toast('PDF downloaded');
+      downloadBlob(url, name); toast('PDF downloaded');
     } else if (how === 'open') {
-      const url = URL.createObjectURL(blob);
       const w = window.open(url, '_blank'); if (!w) toast('Pop-up blocked — allow pop-ups for this site.');
     } else if (how === 'print') {
-      printBlob(blob);
+      printBlob(blob, url);
     }
-  } catch (err) {
-    console.error(err); busy(false); toast('Export failed: ' + (err.message || err), 5000);
-  }
+  } catch (err) { console.error(err); toast('Export failed: ' + (err.message || err), 5000); }
+  hideSheet();
 });
-
-function printBlob(blob) {
-  const url = URL.createObjectURL(blob);
+function downloadBlob(url, name) {
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+function printBlob(blob, url) {
   if (isIOS) {
     const w = window.open(url, '_blank');
-    if (w) toast('Use the Share button, then Print.', 4000); else toast('Allow pop-ups to print.');
+    if (w) toast('Tap the Share button, then Print.', 4000); else toast('Allow pop-ups to print.');
     return;
   }
   const fr = document.createElement('iframe');
   fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
   fr.src = url; document.body.appendChild(fr);
-  fr.onload = () => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch { window.open(url, '_blank'); } setTimeout(() => { fr.remove(); URL.revokeObjectURL(url); }, 120000); };
+  fr.onload = () => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch { window.open(url, '_blank'); } setTimeout(() => fr.remove(), 120000); };
 }
 
 // ---------------- settings ----------------
@@ -312,6 +325,12 @@ async function renderStorage() {
 }
 
 // ---------------- PWA ----------------
+// On iOS Safari (not yet on the home screen) nudge once toward Add to Home Screen: that is what keeps
+// IndexedDB from being evicted after a week of non-use, and what makes the app full-screen/offline.
+const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+if (isIOS && !standalone && !localStorage.getItem('formfill.installHintDismissed')) $('#install-hint').hidden = false;
+$('#install-hint-close').addEventListener('click', () => { $('#install-hint').hidden = true; localStorage.setItem('formfill.installHintDismissed', '1'); });
+
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }

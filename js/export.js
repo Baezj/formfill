@@ -112,26 +112,39 @@ async function fillFields(pdfDoc, doc, fieldDefs, flatten) {
     if (!field) continue;
     try {
       if (field instanceof PDFTextField) {
-        field.setText(winAnsiSafe(String(v ?? '')));
-      } else if (field instanceof PDFCheckBox) {
-        // v is either boolean or the export value of the widget that should be on.
-        if (v === false || v === '' || v == null || v === 'Off') field.uncheck();
-        else if (v === true) field.check();
-        else field.acroField.setValue(PDFName.of(String(v)));
-      } else if (field instanceof PDFRadioGroup) {
-        if (v == null || v === '' || v === 'Off') { try { field.clear(); } catch { /* ignore */ } }
-        else {
-          try { field.select(String(v)); }
-          catch { field.acroField.setValue(PDFName.of(String(v))); }
-        }
+        let text = winAnsiSafe(String(v ?? ''));
+        const max = field.getMaxLength();
+        if (max && text.length > max) text = text.slice(0, max);
+        field.setText(text);
+      } else if (field instanceof PDFCheckBox || field instanceof PDFRadioGroup) {
+        // v is false/"Off" (nothing on), true (checkbox on), or the on-state name of the widget that should be on.
+        // Always go through the widgets' on-state names: option labels in /Opt can collide with them.
+        const onVals = field.acroField.getWidgets().map(w => { const n = w.getOnValue(); return n ? n.decodeText() : null; });
+        if (v === false || v === '' || v == null || v === 'Off') {
+          if (field instanceof PDFCheckBox) field.uncheck(); else { try { field.clear(); } catch { /* ignore */ } }
+        } else if (v === true) {
+          if (field instanceof PDFCheckBox) field.check(); else if (onVals[0]) field.acroField.setValue(PDFName.of(onVals[0]));
+        } else if (onVals.includes(String(v))) {
+          field.acroField.setValue(PDFName.of(String(v)));
+        } else if (field instanceof PDFRadioGroup) {
+          try { field.select(String(v)); } catch { /* unknown value */ }
+        } else field.check();
       } else if (field instanceof PDFDropdown) {
         if (v != null && v !== '') {
           try { field.select(String(v)); }
           catch { field.setOptions([...new Set([...field.getOptions(), String(v)])]); field.select(String(v)); }
         } else field.clear();
       } else if (field instanceof PDFOptionList) {
-        const arr = Array.isArray(v) ? v : (v ? [v] : []);
-        try { field.select(arr.map(String)); } catch { /* ignore */ }
+        const arr = (Array.isArray(v) ? v : (v ? [v] : [])).map(String);
+        try {
+          if (flatten && arr.length) {
+            // pdf-lib draws the list from the top, so a one-line list box would show the first option
+            // instead of the chosen one; once flattened the order no longer matters.
+            const rest = field.getOptions().filter(o => !arr.includes(o));
+            field.setOptions([...arr, ...rest]);
+          }
+          field.select(arr);
+        } catch { /* ignore */ }
       }
     } catch (e) { console.warn('field', name, e); }
   }

@@ -288,3 +288,6 @@ textarea.fld { overflow: hidden; }
 @media print {
   body > * { display: none !important; }
 }
+
+.install-hint { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; padding: 12px 8px 12px 14px; background: var(--accent-2); border: 1px solid #c9d4ff; border-radius: 14px; font-size: 14px; color: #1b2a6b; }
+.install-hint .share-glyph { display: inline-block; font-size: 15px; }
