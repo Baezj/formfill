@@ -9,7 +9,7 @@ const DEFAULTS = {
     address: '', city: '', state: '', zip: '', dob: '', company: '', title: ''
   },
   snippets: [],           // [{label, value}]
-  prefs: { dateFormat: 'MM/DD/YYYY', fontSize: 12, color: '#111111', flatten: true, inkWidth: 2 }
+  prefs: { dateFormat: 'MM/DD/YYYY', fontSize: 12, color: '#111111', flatten: true, inkWidth: 2, penSize: 'regular' }
 };
 
 function load() {

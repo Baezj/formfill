@@ -387,3 +387,9 @@ textarea.fld { overflow: hidden; }
 .modal-actions { align-items: center; }
 
 .update-bar { position: fixed; left: 50%; transform: translateX(-50%); top: calc(var(--sat) + 10px); z-index: 31; border: 0; border-radius: 999px; padding: 10px 16px; background: var(--accent); color: #fff; font-weight: 650; font-size: 14px; box-shadow: var(--shadow); }
+
+.sizes { display: flex; gap: 4px; background: var(--paper); border-radius: 10px; padding: 3px; }
+.sizes button { width: 36px; height: 30px; border: 0; border-radius: 8px; background: transparent; display: inline-flex; align-items: center; justify-content: center; }
+.sizes button i { display: block; border-radius: 50%; background: var(--ink); }
+.sizes button.on { background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.sig-tools + .sig-tools { margin-top: 8px; }

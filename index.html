@@ -173,13 +173,21 @@
         <button data-c="#1d2a4d" style="background:#1d2a4d" aria-label="Navy"></button>
       </div>
       <span class="grow"></span>
+      <div class="sizes" id="sig-sizes" role="group" aria-label="Pen thickness">
+        <button data-s="fine" title="Fine"><i style="width:3px;height:3px"></i></button>
+        <button data-s="regular" class="on" title="Regular"><i style="width:6px;height:6px"></i></button>
+        <button data-s="bold" title="Bold"><i style="width:10px;height:10px"></i></button>
+      </div>
+    </div>
+    <div class="row sig-tools">
       <button class="icon-btn tool-toggle on" id="sig-pen" title="Pen" aria-label="Pen"><svg viewBox="0 0 24 24"><path d="M4 20c1-4 2-6 4-8l8-8 4 4-8 8c-2 2-4 3-8 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
       <button class="icon-btn tool-toggle" id="sig-erase" title="Erase strokes" aria-label="Erase"><svg viewBox="0 0 24 24"><path d="M15 4l5 5-9 9H7l-4-4z M11 8l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      <span class="grow"></span>
       <button class="icon-btn" id="sig-undo" title="Undo" aria-label="Undo" disabled><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h10a5 5 0 0 1 0 10h-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button class="icon-btn" id="sig-redo" title="Redo" aria-label="Redo" disabled><svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H10a5 5 0 0 0 0 10h3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button class="btn small" id="sig-clear">Clear</button>
     </div>
-    <p class="muted small sig-help">Draw to add strokes. Erase removes any stroke you drag across. Pick a color to recolor the whole signature.</p>
+    <p class="muted small sig-help">Draw to add strokes. Erase removes any stroke you drag across. Color and thickness apply to the whole signature.</p>
   </div>
   <div class="tab-pane" data-pane="type" hidden>
     <input type="text" id="sig-type-text" placeholder="Type your name" autocomplete="name">

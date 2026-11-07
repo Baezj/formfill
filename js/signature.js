@@ -19,12 +19,14 @@ let editing = null;        // the saved signature being edited, or null when cre
 let base = null;           // {canvas, w, h} image drawn under the pad's strokes (edit mode)
 let history = [], future = [];   // snapshots of {base dataUrl|null, strokes, color} for undo/redo
 let tool = 'pen';          // 'pen' | 'erase'
+const PEN_SIZES = { fine: { minWidth: 0.6, maxWidth: 1.6 }, regular: { minWidth: 1, maxWidth: 2.6 }, bold: { minWidth: 1.8, maxWidth: 4.2 } };
+let penSize = PEN_SIZES[store.prefs.penSize] ? store.prefs.penSize : 'regular';
 
 // ---------- pad ----------
 function ensurePad() {
   const canvas = $('#sig-pad');
   if (!pad) {
-    pad = new window.SignaturePad(canvas, { minWidth: 1, maxWidth: 2.6, penColor: padColor, throttle: 8, velocityFilterWeight: 0.6 });
+    pad = new window.SignaturePad(canvas, { ...PEN_SIZES[penSize], penColor: padColor, throttle: 8, velocityFilterWeight: 0.6 });
     pad.addEventListener('endStroke', onStrokeEnd);
     // The library ends a stroke only on pointerup. iOS can finish a finger stroke with pointercancel
     // instead; the stroke then stays "open" and the library's document-level pointerup handler
@@ -72,7 +74,7 @@ function onStrokeEnd() {
     const data = copyStrokes(pad.toData()); const eraser = data.pop();
     const pts = eraser.points;
     const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) < 9;
-    const kept = data.filter(s => !s.points.some(p => pts.some(q => near(p, q)))).map(st => ({ ...st, penColor: padColor }));
+    const kept = data.filter(s => !s.points.some(p => pts.some(q => near(p, q)))).map(st => ({ ...st, penColor: padColor, ...PEN_SIZES[penSize] }));
     if (base) {
       const r = baseRect(); const bctx = base.canvas.getContext('2d');
       bctx.save(); bctx.globalCompositeOperation = 'destination-out'; bctx.lineCap = 'round'; bctx.lineJoin = 'round';
@@ -89,14 +91,15 @@ function onStrokeEnd() {
 // SignaturePad.toData() returns its live internal array, so snapshots must be deep copies.
 function copyStrokes(groups) { return (groups || []).map(g => ({ ...g, points: g.points.map(p => ({ ...p })) })); }
 function snapshot() {
-  return { base: base ? base.canvas.toDataURL('image/png') : null, bw: base ? base.w : 0, bh: base ? base.h : 0, strokes: copyStrokes(pad ? pad.toData() : []), color: padColor };
+  return { base: base ? base.canvas.toDataURL('image/png') : null, bw: base ? base.w : 0, bh: base ? base.h : 0, strokes: copyStrokes(pad ? pad.toData() : []), color: padColor, size: penSize };
 }
 function pushHistory() { history.push(snapshot()); if (history.length > 40) history.shift(); future = []; updateHistoryButtons(); }
 async function restore(s) {
   padColor = s.color; setColorUI();
+  if (s.size && PEN_SIZES[s.size]) { penSize = s.size; setSizeUI(); }
   if (s.base) { const img = new Image(); img.src = s.base; await img.decode(); const c = document.createElement('canvas'); c.width = s.bw; c.height = s.bh; c.getContext('2d').drawImage(img, 0, 0); base = { canvas: c, w: s.bw, h: s.bh }; }
   else base = null;
-  const strokes = copyStrokes(s.strokes).map(st => ({ ...st, penColor: s.color }));
+  const strokes = copyStrokes(s.strokes).map(st => ({ ...st, penColor: s.color, ...PEN_SIZES[penSize] }));
   pad.clear(); redrawBase(); pad.fromData(strokes, { clear: false });
 }
 async function undo() { if (history.length < 2) return; future.push(history.pop()); await restore(history[history.length - 1]); updateHistoryButtons(); }
@@ -185,11 +188,15 @@ function setColorUI() {
   for (const x of $('#sig-colors').children) x.classList.toggle('on', x.dataset.c === padColor);
   if (pad) pad.penColor = padColor;
 }
+function setSizeUI() {
+  for (const x of $('#sig-sizes').children) x.classList.toggle('on', x.dataset.s === penSize);
+  if (pad && tool !== 'erase') { pad.minWidth = PEN_SIZES[penSize].minWidth; pad.maxWidth = PEN_SIZES[penSize].maxWidth; }
+}
 function setTool(t) {
   tool = t;
   $('#sig-pen').classList.toggle('on', t === 'pen'); $('#sig-erase').classList.toggle('on', t === 'erase');
   $('#sig-pad').classList.toggle('erasing', t === 'erase');
-  if (pad) { pad.penColor = t === 'erase' ? 'rgba(255,80,80,0.35)' : padColor; pad.minWidth = t === 'erase' ? 6 : 1; pad.maxWidth = t === 'erase' ? 8 : 2.6; }
+  if (pad) { pad.penColor = t === 'erase' ? 'rgba(255,80,80,0.35)' : padColor; pad.minWidth = t === 'erase' ? 6 : PEN_SIZES[penSize].minWidth; pad.maxWidth = t === 'erase' ? 8 : PEN_SIZES[penSize].maxWidth; }
 }
 
 // Buttons next to the drawing pad act on the pointer tap itself. After a drawing gesture on the
@@ -226,6 +233,16 @@ function wire() {
       pushHistory();
     }
     renderFontList();
+  });
+  for (const b of $('#sig-sizes').querySelectorAll('button[data-s]')) onTap(b, () => {
+    penSize = b.dataset.s; store.prefs.penSize = penSize; store.save(); setSizeUI();
+    if (tool === 'erase') setTool('pen');
+    // Re-stroke what is on the pad at the new thickness (strokes only; an edited bitmap keeps its weight).
+    if (pad && !pad.isEmpty()) {
+      const d = copyStrokes(pad.toData()).map(st => ({ ...st, ...PEN_SIZES[penSize] }));
+      pad.clear(); redrawBase(); pad.fromData(d, { clear: false });
+      pushHistory();
+    }
   });
   onTap($('#sig-pen'), () => setTool('pen'));
   onTap($('#sig-erase'), () => setTool(tool === 'erase' ? 'pen' : 'erase'));
@@ -339,7 +356,7 @@ function openModal(startTab) {
     showSheet($('#sig-modal'), { onClose: () => { if (resolver) { const r = resolver; resolver = null; r(null); } } });
     selectTab($('#sig-tabs'), startTab);
     requestAnimationFrame(async () => {
-      ensurePad(); pad.clear(); setTool('pen'); setColorUI(); redrawBase();
+      ensurePad(); pad.clear(); setTool('pen'); setColorUI(); setSizeUI(); redrawBase();
       if (editing && editing.dataUrl && startTab === 'draw') { pad.clear(); redrawBase(); }
       history = [snapshot()]; future = []; updateHistoryButtons();
     });
