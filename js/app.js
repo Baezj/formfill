@@ -10,7 +10,7 @@ import { showSheet, hideSheet, toast, busy, confirmDialog, promptDialog, setupTa
 const $ = s => document.querySelector(s);
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const state = { doc: null, pdf: null, fieldDefs: [], saveTimer: null, dirty: false };
 const editor = new Editor({ onChange: markDirty });
@@ -161,6 +161,7 @@ async function openDoc(doc, pdf = null) {
   if (state.doc) await closeDoc();
   state.doc = doc; state.pdf = pdf; state.fieldDefs = pdf ? await extractFields(pdf) : (doc.fieldDefs || []);
   $('#ed-title').textContent = doc.name;
+  refreshInkSwatch(); $('#ink-pop').hidden = true;
   const st = $('#ed-status');
   if (doc.note) { st.textContent = doc.note; st.hidden = false; } else st.hidden = true;
   $('#home').hidden = true; $('#editor').hidden = false;
@@ -210,6 +211,22 @@ store.init().then(() => { renderHome(); updateSetupHint(); });
 }
 
 $('#btn-undo').addEventListener('click', () => editor.undo());
+// Ink color: header button → popover; applies to new marks and to what is already on the form.
+const INK_NAMES = { '#111111': 'Black', '#1d3fbf': 'Blue', '#c0392b': 'Red' };
+function refreshInkSwatch() {
+  $('#ink-swatch').style.background = store.prefs.color;
+  for (const b of $('#ink-pop').querySelectorAll('button[data-ink]')) b.classList.toggle('on', b.dataset.ink === store.prefs.color);
+}
+$('#btn-ink').addEventListener('click', e => { e.stopPropagation(); refreshInkSwatch(); $('#toast').hidden = true; $('#ink-pop').hidden = !$('#ink-pop').hidden; });
+$('#ink-pop').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-ink]'); if (!b) return;
+  $('#ink-pop').hidden = true;
+  const color = b.dataset.ink;
+  store.prefs.color = color; store.save(); refreshInkSwatch();
+  const n = await editor.applyInkColor(color);
+  toast(`Ink: ${INK_NAMES[color] || color}` + (n ? ` · ${n} item${n === 1 ? '' : 's'} on this form recolored` : ''), 2600);
+});
+document.addEventListener('pointerdown', e => { if (!$('#ink-pop').hidden && !e.target.closest('#ink-pop, #btn-ink')) $('#ink-pop').hidden = true; });
 $('#btn-redo').addEventListener('click', () => editor.redo());
 $('#ed-title').addEventListener('click', renameDoc);
 async function renameDoc() {
@@ -433,7 +450,7 @@ function renderPrefs() {
 }
 $('#pref-date').addEventListener('change', e => { store.prefs.dateFormat = e.target.value; store.save(); });
 $('#pref-size').addEventListener('change', e => { store.prefs.fontSize = Math.max(6, Math.min(48, +e.target.value || 12)); store.save(); });
-$('#pref-color').addEventListener('change', e => { store.prefs.color = e.target.value; store.save(); });
+$('#pref-color').addEventListener('change', e => { store.prefs.color = e.target.value; store.save(); refreshInkSwatch(); });
 $('#pref-flatten').addEventListener('change', e => { store.prefs.flatten = e.target.checked; store.save(); });
 $('#pref-wipe').addEventListener('click', async () => { if (await confirmDialog('Delete every saved document? Your details and signatures are kept.')) { await db.clear(); renderHome(); renderStorage(); toast('All documents deleted'); } });
 async function renderStorage() {

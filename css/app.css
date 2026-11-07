@@ -393,3 +393,10 @@ textarea.fld { overflow: hidden; }
 .sizes button i { display: block; border-radius: 50%; background: var(--ink); }
 .sizes button.on { background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
 .sig-tools + .sig-tools { margin-top: 8px; }
+
+.ink-btn .ink-swatch { width: 20px; height: 20px; border-radius: 50%; background: #111; border: 2.5px solid var(--surface); box-shadow: 0 0 0 1.5px var(--line); display: block; }
+.ink-pop { position: absolute; right: 56px; top: calc(var(--sat) + 52px); z-index: 7; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px; width: 230px; }
+.ink-pop button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; padding: 10px 10px; border-radius: 10px; font-size: 15px; font-weight: 600; text-align: left; }
+.ink-pop button i { width: 20px; height: 20px; border-radius: 50%; background: var(--c); display: block; }
+.ink-pop button.on { background: var(--accent-2); }
+.ink-pop p { margin: 6px 10px 8px; }

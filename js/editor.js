@@ -642,6 +642,24 @@ export class Editor {
     this.renderAnnot(a); this.updateSelBar(); this.onChange();
     if (a.type === 'text') this.autogrow(a);
   }
+  // Change the ink of everything on the document (one undo step).
+  async applyInkColor(color) {
+    for (const el of this.root.querySelectorAll('.fld')) el.style.color = color;
+    if (!this.doc.annots.length) return 0;
+    this.pushHistory();
+    let n = 0;
+    for (const a of this.doc.annots) {
+      if (a.color === color && a.type !== 'image') continue;
+      a.color = color; n++;
+      if (a.type === 'image') {
+        if (!a.srcImgId) a.srcImgId = a.imgId;
+        const src = (this.doc.images && this.doc.images[a.srcImgId]) || a.dataUrl; if (!src) continue;
+        a.imgId = this.storeImage(await tintDataUrl(src, color)); delete a.dataUrl;
+      }
+    }
+    this.renderAllAnnots(); this.onChange();
+    return n;
+  }
   // Re-tint a placed signature/initials/image from its original pixels (never from a previous tint).
   async recolorImage(a) {
     if (!a.srcImgId) a.srcImgId = a.imgId;

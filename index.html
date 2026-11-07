@@ -88,12 +88,19 @@
     <div class="ed-head-actions">
       <button class="icon-btn" id="btn-undo" aria-label="Undo" disabled><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h10a5 5 0 0 1 0 10h-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button class="icon-btn" id="btn-redo" aria-label="Redo" disabled><svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H10a5 5 0 0 0 0 10h3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="icon-btn ink-btn" id="btn-ink" aria-label="Ink color" title="Ink color"><span class="ink-swatch" id="ink-swatch"></span></button>
       <button class="icon-btn" id="btn-more" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
       <button class="btn primary small" id="btn-export">Export</button>
     </div>
   </header>
 
   <div class="ed-status" id="ed-status" hidden></div>
+  <div id="ink-pop" class="ink-pop" hidden>
+    <button data-ink="#111111" style="--c:#111111"><i></i>Black</button>
+    <button data-ink="#1d3fbf" style="--c:#1d3fbf"><i></i>Blue</button>
+    <button data-ink="#c0392b" style="--c:#c0392b"><i></i>Red</button>
+    <p class="muted small">Used for everything you add. Already-placed marks and signatures on this form switch too.</p>
+  </div>
 
   <div id="pages-wrap">
     <div id="pages"></div>
