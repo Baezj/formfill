@@ -57,6 +57,13 @@ export const store = {
     try { await db.sigPut(sig); } catch (e) { console.warn(e); if (this.onSaveError) this.onSaveError(e); }
     return sig;
   },
+  async updateSignature(id, patch) {
+    const i = this.signatures.findIndex(s => s.id === id); if (i < 0) return null;
+    const sig = { ...this.signatures[i], ...patch, id, updated: Date.now() };
+    this.signatures[i] = sig;
+    try { await db.sigPut(sig); } catch (e) { console.warn(e); if (this.onSaveError) this.onSaveError(e); }
+    return sig;
+  },
   async removeSignature(id) {
     this.signatures = this.signatures.filter(s => s.id !== id);
     try { await db.sigDelete(id); } catch (e) { console.warn(e); }

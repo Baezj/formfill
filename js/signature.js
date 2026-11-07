@@ -1,4 +1,5 @@
-// Signature creation (draw / type / upload) and the picker sheet.
+// Signatures: create (draw / type / upload), edit existing ones (draw over, erase strokes, retype,
+// recolor, resize) with undo/redo, and the picker sheet.
 import { store } from './store.js';
 import { showSheet, hideSheet, setupTabs, selectTab, toast } from './ui.js';
 
@@ -11,23 +12,88 @@ const FONTS = [
   ['"Homemade Apple", cursive', 'Homemade Apple'],
   ['"Caveat", cursive', 'Caveat']
 ];
+const PAD_RATIO = Math.max(window.devicePixelRatio || 1, 2);
 
 let pad = null, padColor = '#111111', typeFont = 0, uploadCanvas = null, resolver = null, currentKind = 'signature';
+let editing = null;        // the saved signature being edited, or null when creating
+let base = null;           // {canvas, w, h} image drawn under the pad's strokes (edit mode)
+let history = [], future = [];   // snapshots of {base dataUrl|null, strokes, color} for undo/redo
+let tool = 'pen';          // 'pen' | 'erase'
 
+// ---------- pad ----------
 function ensurePad() {
   const canvas = $('#sig-pad');
   if (!pad) {
     pad = new window.SignaturePad(canvas, { minWidth: 1, maxWidth: 2.6, penColor: padColor, throttle: 8, velocityFilterWeight: 0.6 });
+    pad.addEventListener('endStroke', onStrokeEnd);
   }
-  const ratio = Math.max(window.devicePixelRatio || 1, 2);
   const r = canvas.getBoundingClientRect();
-  if (canvas.width !== Math.round(r.width * ratio)) {
-    canvas.width = Math.round(r.width * ratio); canvas.height = Math.round(r.height * ratio);
-    canvas.getContext('2d').scale(ratio, ratio);
-    pad.clear();
+  const W = Math.round(r.width * PAD_RATIO), H = Math.round(r.height * PAD_RATIO);
+  if (canvas.width !== W || canvas.height !== H) {
+    const data = pad.toData();
+    canvas.width = W; canvas.height = H;
+    canvas.getContext('2d').scale(PAD_RATIO, PAD_RATIO);
+    pad.clear(); redrawBase();
+    if (data.length) pad.fromData(data, { clear: false });
   }
 }
+function padSize() { const r = $('#sig-pad').getBoundingClientRect(); return { w: r.width, h: r.height }; }
 
+// Where the base image sits inside the pad (CSS px), centred and scaled to fit with margins.
+function baseRect() {
+  if (!base) return null;
+  const { w, h } = padSize();
+  const maxW = w - 32, maxH = h - 40;
+  const s = Math.min(maxW / base.w, maxH / base.h, 1.5);
+  const bw = base.w * s, bh = base.h * s;
+  return { x: (w - bw) / 2, y: (h - bh) / 2, w: bw, h: bh };
+}
+function redrawBase() {
+  const canvas = $('#sig-pad'); const ctx = canvas.getContext('2d');
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.restore();
+  if (!base) return;
+  const r = baseRect();
+  ctx.drawImage(base.canvas, r.x, r.y, r.w, r.h);
+}
+
+// Erase mode: a stroke removes any pen stroke it crosses; if it crosses the base image, it
+// punches a transparent hole in it (lets you clean up an uploaded photo signature).
+function onStrokeEnd() {
+  if (!pad) return;
+  if (tool === 'erase') {
+    const data = pad.toData(); const eraser = data.pop();
+    const pts = eraser.points;
+    const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) < 9;
+    const kept = data.filter(s => !s.points.some(p => pts.some(q => near(p, q)))).map(st => ({ ...st, penColor: padColor }));
+    if (base) {
+      const r = baseRect(); const bctx = base.canvas.getContext('2d');
+      bctx.save(); bctx.globalCompositeOperation = 'destination-out'; bctx.lineCap = 'round'; bctx.lineJoin = 'round';
+      bctx.lineWidth = 14 * (base.w / r.w); bctx.beginPath();
+      pts.forEach((p, i) => { const x = (p.x - r.x) * (base.w / r.w), y = (p.y - r.y) * (base.h / r.h); i ? bctx.lineTo(x, y) : bctx.moveTo(x, y); });
+      bctx.stroke(); bctx.restore();
+    }
+    pad.clear(); redrawBase(); pad.fromData(kept, { clear: false });
+  }
+  pushHistory();
+}
+
+// ---------- history ----------
+function snapshot() {
+  return { base: base ? base.canvas.toDataURL('image/png') : null, bw: base ? base.w : 0, bh: base ? base.h : 0, strokes: pad ? pad.toData() : [], color: padColor };
+}
+function pushHistory() { history.push(snapshot()); if (history.length > 40) history.shift(); future = []; updateHistoryButtons(); }
+async function restore(s) {
+  padColor = s.color; setColorUI();
+  if (s.base) { const img = new Image(); img.src = s.base; await img.decode(); const c = document.createElement('canvas'); c.width = s.bw; c.height = s.bh; c.getContext('2d').drawImage(img, 0, 0); base = { canvas: c, w: s.bw, h: s.bh }; }
+  else base = null;
+  const strokes = s.strokes.map(st => ({ ...st, penColor: s.color }));
+  pad.clear(); redrawBase(); pad.fromData(strokes, { clear: false });
+}
+async function undo() { if (history.length < 2) return; future.push(history.pop()); await restore(history[history.length - 1]); updateHistoryButtons(); }
+async function redo() { if (!future.length) return; const s = future.pop(); history.push(s); await restore(s); updateHistoryButtons(); }
+function updateHistoryButtons() { $('#sig-undo').disabled = history.length < 2; $('#sig-redo').disabled = !future.length; }
+
+// ---------- helpers ----------
 // Trim transparent edges; returns {dataUrl, w, h} or null if empty.
 function trimCanvas(src, padPx = 6) {
   const ctx = src.getContext('2d');
@@ -46,7 +112,7 @@ function trimCanvas(src, padPx = 6) {
   return { dataUrl: out.toDataURL('image/png'), w, h };
 }
 
-async function renderTyped(text, fontIdx) {
+async function renderTyped(text, fontIdx, color = padColor) {
   const family = FONTS[fontIdx][0];
   try { await document.fonts.load(`80px ${family}`); } catch { /* fallback font */ }
   const c = document.createElement('canvas');
@@ -55,7 +121,7 @@ async function renderTyped(text, fontIdx) {
   const m = ctx.measureText(text);
   c.width = Math.ceil(m.width + 60); c.height = 160;
   const ctx2 = c.getContext('2d');
-  ctx2.font = `80px ${family}`; ctx2.fillStyle = padColor; ctx2.textBaseline = 'middle';
+  ctx2.font = `80px ${family}`; ctx2.fillStyle = color; ctx2.textBaseline = 'middle';
   ctx2.fillText(text, 30, 80);
   return trimCanvas(c);
 }
@@ -66,11 +132,24 @@ function removeWhite(canvas) {
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
     const lum = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-    // Fade out bright pixels; keep dark ink opaque.
     const a = lum > 235 ? 0 : lum > 150 ? Math.round(255 * (235 - lum) / 85) : 255;
     d[i + 3] = Math.min(d[i + 3], a);
   }
   ctx.putImageData(img, 0, 0);
+}
+// Recolor every opaque pixel (keeps anti-aliasing via alpha).
+function tint(canvas, hex) {
+  const ctx = canvas.getContext('2d');
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex); if (!m) return;
+  const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height); const d = img.data;
+  for (let i = 0; i < d.length; i += 4) { if (d[i + 3] > 0) { d[i] = r; d[i + 1] = g; d[i + 2] = b; } }
+  ctx.putImageData(img, 0, 0);
+}
+async function dataUrlToCanvas(dataUrl) {
+  const img = new Image(); img.src = dataUrl; await img.decode();
+  const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext('2d').drawImage(img, 0, 0); return c;
 }
 
 async function handleUpload(file) {
@@ -92,19 +171,40 @@ function refreshUploadPreview() {
   $('#sig-upload-preview').src = t ? t.dataUrl : '';
 }
 
+function setColorUI() {
+  for (const x of $('#sig-colors').children) x.classList.toggle('on', x.dataset.c === padColor);
+  if (pad) pad.penColor = padColor;
+}
+function setTool(t) {
+  tool = t;
+  $('#sig-pen').classList.toggle('on', t === 'pen'); $('#sig-erase').classList.toggle('on', t === 'erase');
+  $('#sig-pad').classList.toggle('erasing', t === 'erase');
+  if (pad) { pad.penColor = t === 'erase' ? 'rgba(255,80,80,0.35)' : padColor; pad.minWidth = t === 'erase' ? 6 : 1; pad.maxWidth = t === 'erase' ? 8 : 2.6; }
+}
+
+// ---------- wiring ----------
 let wired = false;
 function wire() {
   if (wired) return; wired = true;
   setupTabs($('#sig-tabs'), $('#sig-modal'), tab => { if (tab === 'draw') ensurePad(); });
-  $('#sig-colors').addEventListener('click', e => {
+  $('#sig-colors').addEventListener('click', async e => {
     const b = e.target.closest('button[data-c]'); if (!b) return;
-    padColor = b.dataset.c;
-    for (const x of $('#sig-colors').children) x.classList.toggle('on', x === b);
-    if (pad) pad.penColor = padColor;
+    padColor = b.dataset.c; setColorUI();
+    if (tool === 'erase') setTool('pen');
+    // Recolor what is already on the pad (strokes and base) so the whole signature changes together.
+    if (pad && (!pad.isEmpty() || base)) {
+      const d = pad.toData(); d.forEach(s => { s.penColor = padColor; });
+      if (base) tint(base.canvas, padColor);
+      pad.clear(); redrawBase(); pad.fromData(d, { clear: false });
+      pushHistory();
+    }
     renderFontList();
   });
-  $('#sig-undo').addEventListener('click', () => { if (!pad) return; const d = pad.toData(); d.pop(); pad.fromData(d); });
-  $('#sig-clear').addEventListener('click', () => pad && pad.clear());
+  $('#sig-pen').addEventListener('click', () => setTool('pen'));
+  $('#sig-erase').addEventListener('click', () => setTool(tool === 'erase' ? 'pen' : 'erase'));
+  $('#sig-undo').addEventListener('click', undo);
+  $('#sig-redo').addEventListener('click', redo);
+  $('#sig-clear').addEventListener('click', () => { if (!pad) return; base = null; pad.clear(); pushHistory(); });
   $('#sig-type-text').addEventListener('input', renderFontList);
   $('#sig-fonts').addEventListener('click', e => {
     const b = e.target.closest('button[data-f]'); if (!b) return;
@@ -114,7 +214,19 @@ function wire() {
   $('#sig-upload').addEventListener('change', e => { if (e.target.files[0]) handleUpload(e.target.files[0]); });
   $('#sig-remove-bg').addEventListener('change', refreshUploadPreview);
   $('#sig-save').addEventListener('click', save);
+  $('#sig-delete').addEventListener('click', async () => {
+    if (!editing) return;
+    if (!window.confirm('Delete this ' + (editing.kind === 'initials' ? 'initials' : 'signature') + '?')) return;
+    await store.removeSignature(editing.id);
+    const r = resolver; resolver = null; hideSheet(); if (r) r(null);
+    document.dispatchEvent(new CustomEvent('signatures-changed'));
+  });
   window.addEventListener('resize', () => { if (!$('#sig-modal').hidden) ensurePad(); });
+  document.addEventListener('keydown', e => {
+    if ($('#sig-modal').hidden) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.key.toLowerCase() === 'z' && !e.target.matches('input')) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  });
 }
 
 function renderFontList() {
@@ -126,45 +238,117 @@ function renderFontList() {
   });
 }
 
+// Compose base + strokes into one trimmed PNG at the base's native resolution.
+function composePad() {
+  if (!pad) return null;
+  const strokes = pad.toData();
+  if (!base && !strokes.length) return null;
+  const { w: pw, h: ph } = padSize();
+  // Scale factor: keep base pixels sharp (base px per CSS px), at least the pad's own ratio.
+  const r = base ? baseRect() : null;
+  // Pixel density: the base's native density when editing (no upscaling of an existing signature),
+  // otherwise the pad's ratio; never beyond 3x the on-screen size.
+  const k = Math.min(3, base ? Math.max(1, base.w / r.w) : PAD_RATIO);
+  const c = document.createElement('canvas'); c.width = Math.round(pw * k); c.height = Math.round(ph * k);
+  const ctx = c.getContext('2d'); ctx.scale(k, k);
+  if (base) ctx.drawImage(base.canvas, r.x, r.y, r.w, r.h);
+  // Re-render strokes at this scale with a throwaway SignaturePad.
+  if (strokes.length) {
+    const tmp = document.createElement('canvas'); tmp.width = c.width; tmp.height = c.height;
+    tmp.getContext('2d').scale(k, k);
+    const p2 = new window.SignaturePad(tmp, { minWidth: 1, maxWidth: 2.6 });
+    p2.fromData(strokes); p2.off();
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(tmp, 0, 0);
+  }
+  return trimCanvas(c, Math.round(6 * k));
+}
+
 async function save() {
   const active = $('#sig-tabs button.on').dataset.tab;
-  let result = null;
+  let result = null, meta = {};
   if (active === 'draw') {
-    if (!pad || pad.isEmpty()) { toast('Draw your signature first'); return; }
-    result = trimCanvas($('#sig-pad'));
+    if (tool === 'erase') { setTool('pen'); }
+    result = composePad();
+    if (!result) { toast('Draw your signature first'); return; }
+    meta = { source: 'draw' };
   } else if (active === 'type') {
     const text = $('#sig-type-text').value.trim() || store.profile.fullName;
     if (!text) { toast('Type your name first'); return; }
     result = await renderTyped(text, typeFont);
+    meta = { source: 'type', text, font: typeFont, color: padColor };
   } else {
     if (!uploadCanvas) { toast('Choose an image first'); return; }
     const c = document.createElement('canvas'); c.width = uploadCanvas.width; c.height = uploadCanvas.height;
     c.getContext('2d').drawImage(uploadCanvas, 0, 0);
     if ($('#sig-remove-bg').checked) removeWhite(c);
     result = trimCanvas(c);
+    meta = { source: 'upload' };
   }
   if (!result) { toast('Nothing to save'); return; }
   const r = resolver; resolver = null;
   hideSheet();
-  const sig = await store.addSignature({ kind: currentKind, ...result });
+  let sig;
+  if (editing) {
+    sig = await store.updateSignature(editing.id, { ...result, ...meta });
+    toast('Signature updated');
+  } else {
+    sig = await store.addSignature({ kind: currentKind, ...result, ...meta });
+  }
+  document.dispatchEvent(new CustomEvent('signatures-changed'));
   if (r) r(sig);
+}
+
+function resetModal(kind) {
+  wire();
+  if (resolver) { const r = resolver; resolver = null; r(null); }
+  currentKind = kind; base = null; history = []; future = []; tool = 'pen';
+  uploadCanvas = null; $('#sig-upload').value = ''; $('#sig-upload-preview').removeAttribute('src');
+  $('#sig-modal').classList.toggle('editing', !!editing);
+  $('#sig-delete').hidden = !editing;
+}
+function openModal(startTab) {
+  return new Promise(resolve => {
+    resolver = resolve;
+    showSheet($('#sig-modal'), { onClose: () => { if (resolver) { const r = resolver; resolver = null; r(null); } } });
+    selectTab($('#sig-tabs'), startTab);
+    requestAnimationFrame(async () => {
+      ensurePad(); pad.clear(); setTool('pen'); setColorUI(); redrawBase();
+      if (editing && editing.dataUrl && startTab === 'draw') { pad.clear(); redrawBase(); }
+      history = [snapshot()]; future = []; updateHistoryButtons();
+    });
+  });
 }
 
 /** Opens the creator. Resolves with the saved signature, or null if cancelled. */
 export function createSignature(kind = 'signature') {
-  wire();
-  if (resolver) { const r = resolver; resolver = null; r(null); }
-  currentKind = kind;
+  editing = null;
+  resetModal(kind);
   $('#sig-modal-title').textContent = kind === 'initials' ? 'New initials' : 'New signature';
+  $('#sig-save').textContent = 'Save & use';
   $('#sig-type-text').value = kind === 'initials' ? initialsOf(store.profile.fullName) : (store.profile.fullName || '');
-  uploadCanvas = null; $('#sig-upload').value = ''; $('#sig-upload-preview').removeAttribute('src');
   renderFontList();
-  return new Promise(resolve => {
-    resolver = resolve;
-    showSheet($('#sig-modal'), { onClose: () => { if (resolver) { const r = resolver; resolver = null; r(null); } } });
-    selectTab($('#sig-tabs'), 'draw');
-    requestAnimationFrame(() => { ensurePad(); pad.clear(); pad.penColor = padColor; });
-  });
+  return openModal('draw');
+}
+
+/** Opens an existing signature for editing. Resolves with the updated signature, or null. */
+export async function editSignature(sig) {
+  editing = sig;
+  resetModal(sig.kind);
+  $('#sig-modal-title').textContent = sig.kind === 'initials' ? 'Edit initials' : 'Edit signature';
+  $('#sig-save').textContent = 'Save changes';
+  if (sig.color) padColor = sig.color;
+  if (sig.source === 'type') {
+    typeFont = sig.font || 0;
+    $('#sig-type-text').value = sig.text || '';
+    renderFontList();
+    // The typed version is also loaded onto the pad so it can be touched up by hand.
+  } else {
+    $('#sig-type-text').value = sig.kind === 'initials' ? initialsOf(store.profile.fullName) : (store.profile.fullName || '');
+    renderFontList();
+  }
+  const c = await dataUrlToCanvas(sig.dataUrl);
+  base = { canvas: c, w: c.width, h: c.height };
+  return openModal(sig.source === 'type' ? 'type' : 'draw');
 }
 
 function initialsOf(name) {
@@ -175,10 +359,10 @@ export function renderSigGrid(el, kind, { manage = false, onPick } = {}) {
   const sigs = store.sigsOf(kind);
   el.classList.toggle('manage', manage);
   if (!sigs.length) { el.innerHTML = `<div class="sig-empty">No ${kind === 'initials' ? 'initials' : 'signatures'} saved yet.</div>`; return; }
-  el.innerHTML = sigs.map(s => `<div class="sig-item" data-id="${s.id}"><img src="${s.dataUrl}" alt=""><button class="del" data-del="${s.id}" aria-label="Delete">&times;</button></div>`).join('');
+  el.innerHTML = sigs.map(s => `<div class="sig-item" data-id="${s.id}"><img src="${s.dataUrl}" alt="">${manage ? '<span class="edit-hint">Edit</span>' : ''}<button class="del" data-del="${s.id}" aria-label="Delete">&times;</button></div>`).join('');
   el.onclick = e => {
     const del = e.target.closest('[data-del]');
-    if (del) { store.removeSignature(del.dataset.del).then(() => renderSigGrid(el, kind, { manage, onPick })); return; }
+    if (del) { if (window.confirm('Delete this signature?')) store.removeSignature(del.dataset.del).then(() => renderSigGrid(el, kind, { manage, onPick })); return; }
     const item = e.target.closest('.sig-item');
     if (item && onPick) onPick(store.signatures.find(s => s.id === item.dataset.id));
   };
@@ -196,10 +380,13 @@ export function pickSignature(kind = 'signature', opts = {}) {
     let manage = false, done = false;
     const finish = v => { if (done) return; done = true; resolve(v); };
     const grid = $('#sig-grid');
-    const draw = () => renderSigGrid(grid, kind, { manage, onPick: s => { if (!manage) { finish(s); hideSheet(); } } });
+    const draw = () => renderSigGrid(grid, kind, { manage, onPick: async s => {
+      if (!manage) { finish(s); hideSheet(); return; }
+      done = true; hideSheet(); resolve(await editSignature(s));
+    } });
     draw();
-    $('#sig-manage').onclick = () => { manage = !manage; $('#sig-manage').textContent = manage ? 'Done' : 'Manage'; draw(); };
-    $('#sig-manage').textContent = 'Manage';
+    $('#sig-manage').onclick = () => { manage = !manage; $('#sig-manage').textContent = manage ? 'Done' : 'Edit'; draw(); };
+    $('#sig-manage').textContent = 'Edit';
     $('#sig-new').onclick = async () => { done = true; hideSheet(); resolve(await createSignature(kind)); };
     showSheet(sheet, { onClose: () => finish(null) });
   });

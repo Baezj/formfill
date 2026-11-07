@@ -4,7 +4,7 @@ import { store, PROFILE_FIELDS, formatDate } from './store.js';
 import { loadPdfFile, loadImageFiles, loadDocxFile, blankDoc, imageToPage, extractFields, openPdfJs, classify, LETTER } from './loaders.js';
 import { Editor } from './editor.js';
 import { buildPdf, lastBuild } from './export.js';
-import { createSignature, renderSigGrid } from './signature.js';
+import { createSignature, editSignature, renderSigGrid } from './signature.js';
 import { showSheet, hideSheet, toast, busy, confirmDialog, promptDialog, setupTabs, timeAgo } from './ui.js';
 
 const $ = s => document.querySelector(s);
@@ -417,9 +417,11 @@ function renderSnippets() {
 $('#snippet-add').addEventListener('click', () => { store.snippets.push({ label: '', value: '' }); store.save(); renderSnippets(); $('#snippets input:last-of-type')?.focus(); });
 
 function renderSettingsSigs() {
-  renderSigGrid($('#settings-sigs'), 'signature', { manage: true });
-  renderSigGrid($('#settings-initials'), 'initials', { manage: true });
+  const edit = async s => { await editSignature(s); showSheet($('#settings-modal')); renderSettingsSigs(); };
+  renderSigGrid($('#settings-sigs'), 'signature', { manage: true, onPick: edit });
+  renderSigGrid($('#settings-initials'), 'initials', { manage: true, onPick: edit });
 }
+document.addEventListener('signatures-changed', () => { if (!$('#settings-modal').hidden) renderSettingsSigs(); updateSetupHint(); });
 $('#settings-new-sig').addEventListener('click', async () => { await createSignature('signature'); showSheet($('#settings-modal')); renderSettingsSigs(); });
 $('#settings-new-init').addEventListener('click', async () => { await createSignature('initials'); showSheet($('#settings-modal')); renderSettingsSigs(); });
 

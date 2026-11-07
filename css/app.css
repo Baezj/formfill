@@ -374,3 +374,14 @@ textarea.fld { overflow: hidden; }
 .fld.hotspot { pointer-events: auto; background: rgba(47,91,255,.07); border: 1.5px dashed rgba(47,91,255,.75); border-radius: 6px; font-weight: 650; color: var(--accent); font-size: max(10px, calc(var(--z) * 9px)); line-height: 1; display: flex; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; animation: hot-pulse 2.4s ease-in-out 3; }
 @keyframes hot-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(47,91,255,0); } 50% { box-shadow: 0 0 0 4px rgba(47,91,255,.25); } }
 #editor.tool-active .fld.hotspot { pointer-events: none; }
+
+.sig-tools { gap: 6px; }
+.sig-tools .tool-toggle { width: 36px; height: 36px; border: 1px solid var(--line); }
+.sig-tools .tool-toggle.on { background: var(--accent-2); color: var(--accent); border-color: var(--accent); }
+.sig-tools .icon-btn svg { width: 20px; height: 20px; }
+.sig-help { margin: 8px 0 0; }
+#sig-pad.erasing { cursor: cell; }
+.pad-wrap { height: 200px; }
+.sig-item { cursor: pointer; }
+.sig-item .edit-hint { position: absolute; left: 6px; bottom: 6px; font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-2); padding: 2px 7px; border-radius: 999px; }
+.modal-actions { align-items: center; }

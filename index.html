@@ -166,16 +166,20 @@
   </div>
   <div class="tab-pane" data-pane="draw">
     <div class="pad-wrap"><canvas id="sig-pad"></canvas><div class="pad-line"></div></div>
-    <div class="row">
+    <div class="row sig-tools">
       <div class="colors" id="sig-colors">
-        <button data-c="#111111" class="on" style="background:#111"></button>
-        <button data-c="#1d3fbf" style="background:#1d3fbf"></button>
-        <button data-c="#1d2a4d" style="background:#1d2a4d"></button>
+        <button data-c="#111111" class="on" style="background:#111" aria-label="Black"></button>
+        <button data-c="#1d3fbf" style="background:#1d3fbf" aria-label="Blue"></button>
+        <button data-c="#1d2a4d" style="background:#1d2a4d" aria-label="Navy"></button>
       </div>
       <span class="grow"></span>
-      <button class="btn" id="sig-undo">Undo</button>
-      <button class="btn" id="sig-clear">Clear</button>
+      <button class="icon-btn tool-toggle on" id="sig-pen" title="Pen" aria-label="Pen"><svg viewBox="0 0 24 24"><path d="M4 20c1-4 2-6 4-8l8-8 4 4-8 8c-2 2-4 3-8 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
+      <button class="icon-btn tool-toggle" id="sig-erase" title="Erase strokes" aria-label="Erase"><svg viewBox="0 0 24 24"><path d="M15 4l5 5-9 9H7l-4-4z M11 8l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      <button class="icon-btn" id="sig-undo" title="Undo" aria-label="Undo" disabled><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h10a5 5 0 0 1 0 10h-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="icon-btn" id="sig-redo" title="Redo" aria-label="Redo" disabled><svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H10a5 5 0 0 0 0 10h3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="btn small" id="sig-clear">Clear</button>
     </div>
+    <p class="muted small sig-help">Draw to add strokes. Erase removes any stroke you drag across. Pick a color to recolor the whole signature.</p>
   </div>
   <div class="tab-pane" data-pane="type" hidden>
     <input type="text" id="sig-type-text" placeholder="Type your name" autocomplete="name">
@@ -187,6 +191,8 @@
     <div class="upload-preview"><img id="sig-upload-preview" alt=""></div>
   </div>
   <div class="modal-actions">
+    <button class="btn danger" id="sig-delete" hidden>Delete</button>
+    <span class="grow"></span>
     <button class="btn" data-close>Cancel</button>
     <button class="btn primary" id="sig-save">Save &amp; use</button>
   </div>
@@ -259,6 +265,7 @@
     <button class="btn" id="snippet-add">+ Add snippet</button>
   </div>
   <div class="tab-pane" data-pane="sigs" hidden>
+    <p class="muted small">Tap a signature to edit it — draw over it, erase strokes, recolor, or retype it. Changes can be undone.</p>
     <h4>Signatures</h4><div class="sig-grid manage" id="settings-sigs"></div>
     <h4>Initials</h4><div class="sig-grid manage" id="settings-initials"></div>
     <div class="row"><button class="btn" id="settings-new-sig">New signature</button><button class="btn" id="settings-new-init">New initials</button></div>
