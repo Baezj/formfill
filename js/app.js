@@ -10,6 +10,7 @@ import { showSheet, hideSheet, toast, busy, confirmDialog, promptDialog, setupTa
 const $ = s => document.querySelector(s);
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+const APP_VERSION = '1.4';
 const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const state = { doc: null, pdf: null, fieldDefs: [], saveTimer: null, dirty: false };
 const editor = new Editor({ onChange: markDirty });
@@ -438,6 +439,7 @@ async function renderStorage() {
   const u = await db.usage(); const list = await db.list();
   const mb = u ? (u.usage / 1048576).toFixed(1) + ' MB used' : '';
   $('#storage-info').textContent = `${list.length} document${list.length === 1 ? '' : 's'} saved on this device. ${mb}`;
+  $('#about-version').textContent = `Version ${APP_VERSION}` + (standalone ? ' · installed app' : '');
 }
 
 // ---------------- keyboard ----------------
@@ -466,7 +468,16 @@ $('#setup-hint-close').addEventListener('click', () => { localStorage.setItem('f
 $('#install-hint-close').addEventListener('click', () => { $('#install-hint').hidden = true; localStorage.setItem('formfill.installHintDismissed', '1'); });
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  window.addEventListener('load', () => {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').then(reg => { try { reg.update(); } catch { /* ignore */ } }).catch(() => {});
+    // A new version took over: offer a reload so the page runs matching code everywhere.
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return;
+      const bar = $('#update-bar'); bar.hidden = false;
+    });
+  });
+  $('#update-bar').addEventListener('click', async () => { await save(true); location.reload(); });
 }
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 

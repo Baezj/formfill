@@ -1,6 +1,6 @@
 // Service worker: caches the app shell so FormFill works offline once visited.
 // Bump VERSION on every deploy that touches vendor/ (pdf.js main + worker must match).
-const VERSION = 'formfill-v3';
+const VERSION = 'formfill-v4';
 const SHELL = [
   './', './index.html', './css/app.css', './manifest.webmanifest',
   './js/app.js', './js/db.js', './js/editor.js', './js/export.js', './js/loaders.js', './js/signature.js', './js/smart.js', './js/store.js', './js/ui.js',
@@ -31,7 +31,9 @@ self.addEventListener('fetch', e => {
       catch { return hit || Response.error(); }
     }
     try {
-      const res = await fetch(req);
+      // Always revalidate app files with the server (ETag) so a deploy is picked up on the next
+      // launch instead of after GitHub Pages' 10-minute HTTP cache.
+      const res = await fetch(req, { cache: 'no-cache' });
       if (res.ok) cache.put(req, res.clone());
       return res;
     } catch {

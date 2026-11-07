@@ -289,11 +289,13 @@
     <p class="muted small" id="storage-info"></p>
     <button class="btn danger" id="pref-wipe">Delete all documents</button>
     <h4>About</h4>
+    <p class="muted small" id="about-version"></p>
     <p class="muted small">FormFill runs entirely in your browser — files, details and signatures never leave your device, and nothing is fetched from third parties. On iPhone/iPad, add it to your Home Screen: Safari may otherwise clear a site's saved data after a week without a visit. Finished PDFs you download or share are your long-term copies.</p>
   </div>
 </div>
 
 <div id="toast" class="toast" hidden></div>
+<button id="update-bar" class="update-bar" hidden>A new version is ready — tap to reload</button>
 <div id="busy" class="busy" hidden><div class="spinner"></div><div id="busy-text">Working…</div></div>
 
 <script src="vendor/pdf-lib.min.js"></script>

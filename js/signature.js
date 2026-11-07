@@ -26,6 +26,14 @@ function ensurePad() {
   if (!pad) {
     pad = new window.SignaturePad(canvas, { minWidth: 1, maxWidth: 2.6, penColor: padColor, throttle: 8, velocityFilterWeight: 0.6 });
     pad.addEventListener('endStroke', onStrokeEnd);
+    // The library ends a stroke only on pointerup. iOS can finish a finger stroke with pointercancel
+    // instead; the stroke then stays "open" and the library's document-level pointerup handler
+    // calls preventDefault() on the next tap anywhere (e.g. on Undo), which cancels that click.
+    const finish = ev => { if (pad && pad._drawingStroke) { pad._drawingStroke = false; pad.dispatchEvent(new CustomEvent('endStroke', { detail: ev })); } };
+    canvas.addEventListener('pointercancel', finish);
+    canvas.addEventListener('lostpointercapture', finish);
+    window.addEventListener('pointerup', ev => { if (pad && pad._drawingStroke && ev.target !== canvas) finish(ev); }, true);
+    window.addEventListener('pointerdown', ev => { if (pad && pad._drawingStroke && ev.target !== canvas) finish(ev); }, true);
   }
   const r = canvas.getBoundingClientRect();
   const W = Math.round(r.width * PAD_RATIO), H = Math.round(r.height * PAD_RATIO);
@@ -61,7 +69,7 @@ function redrawBase() {
 function onStrokeEnd() {
   if (!pad) return;
   if (tool === 'erase') {
-    const data = pad.toData(); const eraser = data.pop();
+    const data = copyStrokes(pad.toData()); const eraser = data.pop();
     const pts = eraser.points;
     const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) < 9;
     const kept = data.filter(s => !s.points.some(p => pts.some(q => near(p, q)))).map(st => ({ ...st, penColor: padColor }));
@@ -78,15 +86,17 @@ function onStrokeEnd() {
 }
 
 // ---------- history ----------
+// SignaturePad.toData() returns its live internal array, so snapshots must be deep copies.
+function copyStrokes(groups) { return (groups || []).map(g => ({ ...g, points: g.points.map(p => ({ ...p })) })); }
 function snapshot() {
-  return { base: base ? base.canvas.toDataURL('image/png') : null, bw: base ? base.w : 0, bh: base ? base.h : 0, strokes: pad ? pad.toData() : [], color: padColor };
+  return { base: base ? base.canvas.toDataURL('image/png') : null, bw: base ? base.w : 0, bh: base ? base.h : 0, strokes: copyStrokes(pad ? pad.toData() : []), color: padColor };
 }
 function pushHistory() { history.push(snapshot()); if (history.length > 40) history.shift(); future = []; updateHistoryButtons(); }
 async function restore(s) {
   padColor = s.color; setColorUI();
   if (s.base) { const img = new Image(); img.src = s.base; await img.decode(); const c = document.createElement('canvas'); c.width = s.bw; c.height = s.bh; c.getContext('2d').drawImage(img, 0, 0); base = { canvas: c, w: s.bw, h: s.bh }; }
   else base = null;
-  const strokes = s.strokes.map(st => ({ ...st, penColor: s.color }));
+  const strokes = copyStrokes(s.strokes).map(st => ({ ...st, penColor: s.color }));
   pad.clear(); redrawBase(); pad.fromData(strokes, { clear: false });
 }
 async function undo() { if (history.length < 2) return; future.push(history.pop()); await restore(history[history.length - 1]); updateHistoryButtons(); }
@@ -182,29 +192,46 @@ function setTool(t) {
   if (pad) { pad.penColor = t === 'erase' ? 'rgba(255,80,80,0.35)' : padColor; pad.minWidth = t === 'erase' ? 6 : 1; pad.maxWidth = t === 'erase' ? 8 : 2.6; }
 }
 
+// Buttons next to the drawing pad act on the pointer tap itself. After a drawing gesture on the
+// canvas, browsers may not synthesize a click for the very next tap, so a click listener alone
+// would silently miss it.
+function onTap(el, fn) {
+  let down = null;
+  el.addEventListener('pointerdown', e => { if (el.disabled) return; down = { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() }; });
+  el.addEventListener('pointerup', e => {
+    if (!down || down.id !== e.pointerId) return;
+    const ok = Date.now() - down.t < 800 && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 14; down = null;
+    if (!ok || el.disabled) return;
+    e.preventDefault(); el.dataset.tapped = '1'; fn(e);
+    setTimeout(() => { delete el.dataset.tapped; }, 400);
+  });
+  el.addEventListener('pointercancel', () => { down = null; });
+  // Keyboard / assistive tech still get the click; a click right after our tap is ignored.
+  el.addEventListener('click', e => { if (el.dataset.tapped) { e.preventDefault(); return; } fn(e); });
+}
+
 // ---------- wiring ----------
 let wired = false;
 function wire() {
   if (wired) return; wired = true;
   setupTabs($('#sig-tabs'), $('#sig-modal'), tab => { if (tab === 'draw') ensurePad(); });
-  $('#sig-colors').addEventListener('click', async e => {
-    const b = e.target.closest('button[data-c]'); if (!b) return;
+  for (const b of $('#sig-colors').querySelectorAll('button[data-c]')) onTap(b, () => {
     padColor = b.dataset.c; setColorUI();
     if (tool === 'erase') setTool('pen');
     // Recolor what is already on the pad (strokes and base) so the whole signature changes together.
     if (pad && (!pad.isEmpty() || base)) {
-      const d = pad.toData(); d.forEach(s => { s.penColor = padColor; });
+      const d = copyStrokes(pad.toData()); d.forEach(s => { s.penColor = padColor; });
       if (base) tint(base.canvas, padColor);
       pad.clear(); redrawBase(); pad.fromData(d, { clear: false });
       pushHistory();
     }
     renderFontList();
   });
-  $('#sig-pen').addEventListener('click', () => setTool('pen'));
-  $('#sig-erase').addEventListener('click', () => setTool(tool === 'erase' ? 'pen' : 'erase'));
-  $('#sig-undo').addEventListener('click', undo);
-  $('#sig-redo').addEventListener('click', redo);
-  $('#sig-clear').addEventListener('click', () => { if (!pad) return; base = null; pad.clear(); pushHistory(); });
+  onTap($('#sig-pen'), () => setTool('pen'));
+  onTap($('#sig-erase'), () => setTool(tool === 'erase' ? 'pen' : 'erase'));
+  onTap($('#sig-undo'), undo);
+  onTap($('#sig-redo'), redo);
+  onTap($('#sig-clear'), () => { if (!pad) return; base = null; pad.clear(); pushHistory(); });
   $('#sig-type-text').addEventListener('input', renderFontList);
   $('#sig-fonts').addEventListener('click', e => {
     const b = e.target.closest('button[data-f]'); if (!b) return;
