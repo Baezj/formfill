@@ -10,7 +10,7 @@ import { showSheet, hideSheet, toast, busy, confirmDialog, promptDialog, setupTa
 const $ = s => document.querySelector(s);
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.6';
 const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const state = { doc: null, pdf: null, fieldDefs: [], saveTimer: null, dirty: false };
 const editor = new Editor({ onChange: markDirty });
@@ -265,6 +265,7 @@ function hintFor(t) {
   toast(m[t] || '', 1600);
 }
 
+editor.onFirstImageSelect = () => toast('Tip: the color dot changes this signature\'s ink.', 2600);
 editor.onHotspots = n => {
   if (!n || !state.doc) return;
   const hasFields = state.fieldDefs.length > 0;
@@ -336,7 +337,7 @@ async function prepareExport() {
   $('#export-note').textContent = 'Preparing your PDF…';
   try {
     await save(true);
-    const bytes = await buildPdf(state.doc, { flatten: $('#opt-flatten').checked, fieldDefs: state.fieldDefs });
+    const bytes = await buildPdf(state.doc, { flatten: $('#opt-flatten').checked, fieldDefs: state.fieldDefs, inkColor: store.prefs.color });
     if (token !== exp.token) return;
     const name = exportName();
     const blob = new Blob([bytes], { type: 'application/pdf' });
@@ -369,7 +370,7 @@ $('#export-sheet').addEventListener('click', e => {
   const how = b.dataset.export; const { blob, file, name, url } = exp.result;
   try {
     if (how === 'share' && navigator.canShare && navigator.canShare({ files: [file] })) {
-      navigator.share({ files: [file], title: name }).catch(err => { if (err.name !== 'AbortError') { console.warn(err); downloadBlob(url, name); } });
+      navigator.share({ files: [file] }).catch(err => { if (err.name !== 'AbortError') { console.warn(err); downloadBlob(url, name); } });
     } else if (how === 'download' || how === 'share') {
       downloadBlob(url, name); toast('PDF downloaded');
     } else if (how === 'open') {

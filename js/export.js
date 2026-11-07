@@ -95,7 +95,7 @@ async function build(doc, opts) {
       });
     }
     try { pdfjs.destroy(); } catch { /* ignore */ }
-    await fillFields(pdfDoc, doc, opts.fieldDefs || [], flatten);
+    await fillFields(pdfDoc, doc, opts.fieldDefs || [], flatten, opts);
     // Pages the user appended (photos / blank pages) after the original ones.
     for (let i = orig; i < doc.pages.length; i++) {
       const pg = doc.pages[i];
@@ -125,7 +125,19 @@ async function drawPageImage(pdfDoc, page, pg) {
   page.drawImage(img, { x: 0, y: 0, width: pg.w, height: pg.h });
 }
 
-async function fillFields(pdfDoc, doc, fieldDefs, flatten) {
+function recolorDefaultAppearance(field, hex) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex); if (!m) return;
+  const rgbOp = [m[1], m[2], m[3]].map(h => (parseInt(h, 16) / 255).toFixed(3)).join(' ') + ' rg';
+  const strip = da => (da || '').replace(/(-?[\d.]+\s+){4}k\b/g, '').replace(/(-?[\d.]+\s+){3}rg\b/g, '').replace(/(-?[\d.]+\s+)g\b/g, '').replace(/\s+/g, ' ').trim();
+  const fieldDa = field.acroField.getDefaultAppearance();
+  field.acroField.setDefaultAppearance(`${strip(fieldDa) || '/Helv 0 Tf'} ${rgbOp}`);
+  for (const w of field.acroField.getWidgets()) {
+    const wda = w.getDefaultAppearance && w.getDefaultAppearance();
+    if (wda) w.setDefaultAppearance(`${strip(wda)} ${rgbOp}`);
+  }
+}
+
+async function fillFields(pdfDoc, doc, fieldDefs, flatten, opts = {}) {
   let form;
   try { form = pdfDoc.getForm(); } catch (e) { console.warn('no form', e); return; }
   const values = doc.fields || {};
@@ -177,6 +189,15 @@ async function fillFields(pdfDoc, doc, fieldDefs, flatten) {
     } catch (e) { console.warn('field', name, e); }
   }
 
+  // Field text is drawn in the user's ink color (black by default). Some forms (IRS, DMV) ship
+  // with their own color in the field's default appearance — blue on the W-4 — which would make
+  // the export differ from what the app showed on screen.
+  if (opts.inkColor) {
+    for (const f of form.getFields()) {
+      if (!(f instanceof PDFTextField || f instanceof PDFCheckBox || f instanceof PDFRadioGroup || f instanceof PDFDropdown || f instanceof PDFOptionList)) continue;
+      try { recolorDefaultAppearance(f, opts.inkColor); } catch (e) { console.warn('DA', f.getName(), e); }
+    }
+  }
   const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
   try { form.updateFieldAppearances(helv); } catch (e) { console.warn('appearances', e); }
   if (flatten) {

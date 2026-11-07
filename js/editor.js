@@ -9,6 +9,25 @@ const $ = s => document.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const uid = () => 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const COLORS = ['#111111', '#1d3fbf', '#c0392b'];
+// Recolor every opaque pixel of a PNG/JPEG data URL (alpha preserved, so edges stay smooth).
+async function tintDataUrl(dataUrl, hex) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex); if (!m) return dataUrl;
+  const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  const img = new Image(); img.src = dataUrl; await img.decode();
+  const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+  const id = ctx.getImageData(0, 0, c.width, c.height); const d = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue;
+    // Treat near-white as background (uploaded photo signatures) and keep ink darkness as alpha.
+    const lum = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+    const ink = lum > 235 ? 0 : 1;
+    if (!ink) { d[i + 3] = 0; continue; }
+    d[i] = r; d[i + 1] = g; d[i + 2] = b;
+  }
+  ctx.putImageData(id, 0, 0);
+  return c.toDataURL('image/png');
+}
 // Ink points are stored normalized to the annotation box so resizing just scales them.
 function inkPath(a) {
   return a.points.map((p, i) => (i ? 'L' : 'M') + (p[0] * a.w).toFixed(1) + ' ' + (p[1] * a.h).toFixed(1)).join(' ');
@@ -314,6 +333,7 @@ export class Editor {
         });
       } else continue;
       el.classList.add('fld'); el.dataset.name = f.name;
+      el.style.color = store.prefs.color || '#000';
       if (f.readOnly) el.disabled = true;
       el.style.left = `calc(var(--z) * ${f.x}px)`; el.style.top = `calc(var(--z) * ${f.y}px)`;
       el.style.width = `calc(var(--z) * ${f.w}px)`; el.style.height = `calc(var(--z) * ${f.h}px)`;
@@ -598,6 +618,7 @@ export class Editor {
     if (!a) { bar.hidden = true; return; }
     bar.hidden = false; bar.dataset.kind = a.type === 'text' ? 'text' : a.type === 'image' ? 'image' : 'mark';
     if (this.editingId === a.id) bar.dataset.editing = '1'; else delete bar.dataset.editing;
+    if (a.type === 'image' && !this._imgTipShown && this.onFirstImageSelect) { this._imgTipShown = true; this.onFirstImageSelect(); }
     $('#sel-swatch').style.background = a.color || '#111';
     bar.querySelector('[data-act="bold"]').style.opacity = a.bold ? 1 : .55;
   }
@@ -614,9 +635,20 @@ export class Editor {
       else if (a.type === 'ink') { const f = d > 0 ? 1.15 : 1 / 1.15; a.w *= f; a.h *= f; a.width = (a.width || 2) * f; }
       else { const s = clamp(a.w + d * 3, 6, 80); a.w = s; a.h = s; }
     } else if (act === 'bold') a.bold = !a.bold;
-    else if (act === 'color') { a.color = COLORS[(COLORS.indexOf(a.color || '#111111') + 1) % COLORS.length]; }
+    else if (act === 'color') {
+      a.color = COLORS[(COLORS.indexOf(a.color || '#111111') + 1) % COLORS.length];
+      if (a.type === 'image') { this.recolorImage(a); return; }
+    }
     this.renderAnnot(a); this.updateSelBar(); this.onChange();
     if (a.type === 'text') this.autogrow(a);
+  }
+  // Re-tint a placed signature/initials/image from its original pixels (never from a previous tint).
+  async recolorImage(a) {
+    if (!a.srcImgId) a.srcImgId = a.imgId;
+    const src = (this.doc.images && this.doc.images[a.srcImgId]) || a.dataUrl; if (!src) return;
+    const tinted = await tintDataUrl(src, a.color);
+    a.imgId = this.storeImage(tinted); delete a.dataUrl;
+    this.renderAnnot(a); this.updateSelBar(); this.onChange();
   }
   autogrow(a) {
     const el = this.annotEl(a.id); if (!el) return;

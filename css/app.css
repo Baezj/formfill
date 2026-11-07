@@ -210,7 +210,7 @@ textarea.fld { overflow: hidden; }
 .sel-bar button.danger { color: #ff8a7a; }
 .sel-bar svg { width: 20px; height: 20px; }
 .sel-bar .swatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--inv-fg); background: #111; display: block; }
-.sel-bar[data-kind="image"] [data-act="smaller"], .sel-bar[data-kind="image"] [data-act="bigger"], .sel-bar[data-kind="image"] [data-act="bold"], .sel-bar[data-kind="image"] [data-act="color"] { display: none; }
+.sel-bar[data-kind="image"] [data-act="smaller"], .sel-bar[data-kind="image"] [data-act="bigger"], .sel-bar[data-kind="image"] [data-act="bold"] { display: none; }
 .sel-bar[data-kind="mark"] [data-act="bold"] { display: none; }
 
 /* bottom toolbar */
