@@ -52,7 +52,10 @@ export class Editor {
   async load(doc, pdf, fieldDefs) {
     this.destroyPages();
     this.doc = doc; this.pdf = pdf; this.fieldDefs = fieldDefs || [];
-    this.history = []; this.future = []; this.selectedId = null; this.editingId = null;
+    // Undo/redo stacks live on the document so they survive closing and reopening.
+    if (!Array.isArray(doc.history)) doc.history = [];
+    if (!Array.isArray(doc.future)) doc.future = [];
+    this.history = doc.history; this.future = doc.future; this.selectedId = null; this.editingId = null;
     this.setTool(null);
     this.buildPages();
     this.fitWidth();
@@ -529,7 +532,7 @@ export class Editor {
       if (this._justAdded === id && this.history.length) { this.history.pop(); this.updateUndoButtons(); } // nothing to undo
       this.onChange();
     }
-    else if (a.text !== this._editStart) { this.history.push(JSON.stringify(this.doc.annots.map(x => x.id === id ? { ...x, text: this._editStart } : x))); this.future = []; this.trimHistory(); this.updateUndoButtons(); this.onChange(); }
+    else if (a.text !== this._editStart) { this.history.push(JSON.stringify(this.doc.annots.map(x => x.id === id ? { ...x, text: this._editStart } : x))); this.future.length = 0; this.trimHistory(); this.updateUndoButtons(); this.onChange(); }
   }
   annotEl(id) { return this.root.querySelector(`.annot[data-id="${id}"]`); }
 
@@ -555,7 +558,7 @@ export class Editor {
   clearAnnots() { if (!this.doc.annots.length) return; this.pushHistory(); this.doc.annots = []; this.renderAllAnnots(); this.select(null); this.onChange(); }
 
   // ---------------- history ----------------
-  pushHistory() { this.history.push(JSON.stringify(this.doc.annots)); this.future = []; this.trimHistory(); this.updateUndoButtons(); }
+  pushHistory() { this.history.push(JSON.stringify(this.doc.annots)); this.future.length = 0; this.trimHistory(); this.updateUndoButtons(); this.onChange(); }
   trimHistory() { if (this.history.length > 80) this.history.splice(0, this.history.length - 80); }
   undo() { if (!this.history.length) return; this.stopEditing(); this.future.push(JSON.stringify(this.doc.annots)); this.doc.annots = JSON.parse(this.history.pop()); this.renderAllAnnots(); this.select(null); this.updateUndoButtons(); this.onChange(); }
   redo() { if (!this.future.length) return; this.stopEditing(); this.history.push(JSON.stringify(this.doc.annots)); this.doc.annots = JSON.parse(this.future.pop()); this.renderAllAnnots(); this.select(null); this.updateUndoButtons(); this.onChange(); }
@@ -782,7 +785,7 @@ export class Editor {
     const up = () => {
       el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
       try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-      if (moved) { this.history.push(snapshot); this.future = []; this.trimHistory(); this.updateUndoButtons(); this.onChange(); }
+      if (moved) { this.history.push(snapshot); this.future.length = 0; this.trimHistory(); this.updateUndoButtons(); this.onChange(); }
       else if (wasSelected && a.type === 'text') this.startEditing(id);
       else this.select(id);
     };
@@ -807,7 +810,7 @@ export class Editor {
     const up = () => {
       handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); handle.removeEventListener('pointercancel', up);
       try { handle.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-      if (moved) { this.history.push(snapshot); this.future = []; this.trimHistory(); this.updateUndoButtons(); if (a.type === 'text') { a.size = os; this.autogrow(a); } if (a.type === 'ink') a.width = oInk * (a.w / ow); this.onChange(); }
+      if (moved) { this.history.push(snapshot); this.future.length = 0; this.trimHistory(); this.updateUndoButtons(); if (a.type === 'text') { a.size = os; this.autogrow(a); } if (a.type === 'ink') a.width = oInk * (a.w / ow); this.onChange(); }
     };
     handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up); handle.addEventListener('pointercancel', up);
   }
