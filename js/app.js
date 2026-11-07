@@ -10,7 +10,7 @@ import { showSheet, hideSheet, toast, busy, confirmDialog, promptDialog, setupTa
 const $ = s => document.querySelector(s);
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const state = { doc: null, pdf: null, fieldDefs: [], saveTimer: null, dirty: false };
 const editor = new Editor({ onChange: markDirty });

@@ -200,6 +200,16 @@ async function fillFields(pdfDoc, doc, fieldDefs, flatten, opts = {}) {
   }
   const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
   try { form.updateFieldAppearances(helv); } catch (e) { console.warn('appearances', e); }
+  if (opts.inkColor) {
+    // Checked boxes / selected radios keep the form's original (black) artwork unless redrawn,
+    // so redraw the ones that are on in the chosen ink. Unchecked ones are left exactly as designed.
+    for (const f of form.getFields()) {
+      try {
+        if (f instanceof PDFCheckBox && f.isChecked()) f.updateAppearances();
+        else if (f instanceof PDFRadioGroup && f.getSelected() != null) f.updateAppearances();
+      } catch (e) { console.warn('redraw', f.getName(), e); }
+    }
+  }
   if (flatten) {
     // pdf-lib can't flatten widgets it can't draw: signature fields, push buttons, and any widget
     // without an appearance stream. Drop those first (their content is painted by the page anyway);

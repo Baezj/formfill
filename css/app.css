@@ -160,7 +160,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .fld:focus { border-color: var(--accent); background: rgba(47,91,255,.1); box-shadow: 0 0 0 2px rgba(47,91,255,.25); }
 .fld[type="checkbox"], .fld[type="radio"] { padding: 0; cursor: pointer; }
 .fld[type="checkbox"]:checked::after, .fld[type="radio"]:checked::after {
-  content: ""; position: absolute; inset: 15%; background: #000;
+  content: ""; position: absolute; inset: 15%; background: currentColor;
   clip-path: polygon(14% 50%, 38% 74%, 90% 18%, 100% 30%, 38% 95%, 0 62%);
 }
 .fld[type="radio"] { border-radius: 50%; }
